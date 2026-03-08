@@ -6,6 +6,8 @@ export class DocPreviewPanel {
   private panel: vscode.WebviewPanel | undefined;
   private lastRenderedKey = "";
   private disposables: vscode.Disposable[] = [];
+  /** Last known Rust text editor — so we don't lose context when preview panel gets focus */
+  private lastRustEditor: vscode.TextEditor | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -43,11 +45,25 @@ export class DocPreviewPanel {
     this.update();
   }
 
+  /** Call when active editor changes to track the last Rust editor */
+  trackEditor(editor: vscode.TextEditor | undefined): void {
+    if (editor && editor.document.languageId === "rust") {
+      this.lastRustEditor = editor;
+    }
+  }
+
   update(): void {
     if (!this.panel) return;
 
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== "rust") {
+    // Use active editor if it's a Rust file, otherwise fall back to last known Rust editor
+    const active = vscode.window.activeTextEditor;
+    const editor =
+      active && active.document.languageId === "rust"
+        ? active
+        : this.lastRustEditor;
+
+    if (!editor || editor.document.isClosed) {
+      this.lastRustEditor = undefined;
       this.showEmpty();
       return;
     }

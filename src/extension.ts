@@ -11,9 +11,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Track the last Rust editor so preview survives focus changes
+  preview.trackEditor(vscode.window.activeTextEditor);
+
   // Update when cursor moves
   context.subscriptions.push(
-    vscode.window.onDidChangeTextEditorSelection(() => {
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      preview.trackEditor(e.textEditor);
       if (preview.isVisible()) {
         preview.update();
       }
@@ -22,7 +26,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Update when switching files
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => {
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      preview.trackEditor(editor);
       if (preview.isVisible()) {
         preview.update();
       }
