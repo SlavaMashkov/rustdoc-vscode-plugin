@@ -38,7 +38,14 @@ function markdownToHtml(md: string): string {
       i++;
       const codeLines: string[] = [];
       while (i < lines.length && !lines[i].trim().startsWith("```")) {
-        codeLines.push(lines[i]);
+        const codeLine = lines[i];
+        // Rustdoc hidden lines: lines starting with `# ` are hidden from output
+        // A bare `#` on its own line is also hidden
+        if (codeLine === "#" || codeLine.startsWith("# ")) {
+          i++;
+          continue;
+        }
+        codeLines.push(codeLine);
         i++;
       }
       i++; // skip closing ```
