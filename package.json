@@ -1,0 +1,53 @@
+{
+  "name": "rustdoc-viewer",
+  "displayName": "Rust Doc Viewer",
+  "description": "Side panel that renders Rust doc comments as formatted documentation",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:rust"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "rustdocPanel",
+          "title": "Rust Doc",
+          "icon": "$(book)"
+        }
+      ]
+    },
+    "views": {
+      "rustdocPanel": [
+        {
+          "type": "webview",
+          "id": "rustdocViewer.docView",
+          "name": "Rust Doc"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "rustdocViewer.showDocPanel",
+        "title": "Rust Doc: Show Documentation Panel"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
