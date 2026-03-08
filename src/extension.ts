@@ -4,17 +4,15 @@ import { DocPreviewPanel } from "./docViewProvider";
 export function activate(context: vscode.ExtensionContext): void {
   const preview = new DocPreviewPanel(context.extensionUri);
 
-  // Button in editor title bar (top-right, like markdown preview)
   context.subscriptions.push(
     vscode.commands.registerCommand("rustdocViewer.openPreview", () => {
       preview.open();
     }),
   );
 
-  // Track the last Rust editor so preview survives focus changes
   preview.trackEditor(vscode.window.activeTextEditor);
 
-  // Update when cursor moves
+  // Update when cursor moves (scroll to nearest block)
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorSelection((e) => {
       preview.trackEditor(e.textEditor);
@@ -24,7 +22,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Update when switching files
+  // Update when switching files (full re-render)
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       preview.trackEditor(editor);
@@ -34,8 +32,22 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // Re-render when document content changes (debounced)
+  let docChangeTimer: ReturnType<typeof setTimeout> | undefined;
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (e.document.languageId === "rust" && preview.isVisible()) {
+        if (docChangeTimer) clearTimeout(docChangeTimer);
+        docChangeTimer = setTimeout(() => preview.update(), 300);
+      }
+    }),
+  );
+
   context.subscriptions.push({
-    dispose: () => preview.dispose(),
+    dispose: () => {
+      if (docChangeTimer) clearTimeout(docChangeTimer);
+      preview.dispose();
+    },
   });
 }
 

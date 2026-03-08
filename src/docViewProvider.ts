@@ -1,13 +1,17 @@
 import * as vscode from "vscode";
 import { parseDocBlocks, findDocBlockAtLine, DocBlock } from "./docParser";
-import { renderDocToHtml } from "./markdownRenderer";
+import { renderAllBlocksToHtml } from "./markdownRenderer";
 
 export class DocPreviewPanel {
   private panel: vscode.WebviewPanel | undefined;
-  private lastRenderedKey = "";
   private disposables: vscode.Disposable[] = [];
-  /** Last known Rust text editor — so we don't lose context when preview panel gets focus */
   private lastRustEditor: vscode.TextEditor | undefined;
+
+  /** Cached state to avoid full re-renders on every cursor move */
+  private cachedBlocks: DocBlock[] = [];
+  private lastDocUri = "";
+  private lastDocVersion = -1;
+  private lastScrollTarget = "";
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -26,7 +30,7 @@ export class DocPreviewPanel {
         preserveFocus: true,
       },
       {
-        enableScripts: false,
+        enableScripts: true,
         localResourceRoots: [],
       },
     );
@@ -34,7 +38,7 @@ export class DocPreviewPanel {
     this.panel.onDidDispose(
       () => {
         this.panel = undefined;
-        this.lastRenderedKey = "";
+        this.resetCache();
         this.disposables.forEach((d) => d.dispose());
         this.disposables = [];
       },
@@ -45,7 +49,6 @@ export class DocPreviewPanel {
     this.update();
   }
 
-  /** Call when active editor changes to track the last Rust editor */
   trackEditor(editor: vscode.TextEditor | undefined): void {
     if (editor && editor.document.languageId === "rust") {
       this.lastRustEditor = editor;
@@ -55,7 +58,6 @@ export class DocPreviewPanel {
   update(): void {
     if (!this.panel) return;
 
-    // Use active editor if it's a Rust file, otherwise fall back to last known Rust editor
     const active = vscode.window.activeTextEditor;
     const editor =
       active && active.document.languageId === "rust"
@@ -68,27 +70,39 @@ export class DocPreviewPanel {
       return;
     }
 
-    // Update panel title to match the file
-    const fileName = editor.document.fileName.split("/").pop() ?? "Rust Doc";
-    this.panel.title = `Preview: ${fileName}`;
+    const docUri = editor.document.uri.toString();
+    const docVersion = editor.document.version;
 
+    // Full re-render when file or content changes
+    if (docUri !== this.lastDocUri || docVersion !== this.lastDocVersion) {
+      this.cachedBlocks = parseDocBlocks(editor.document);
+
+      if (this.cachedBlocks.length === 0) {
+        this.showEmpty();
+        return;
+      }
+
+      const fileName =
+        editor.document.fileName.split("/").pop() ?? "Rust Doc";
+      this.panel.title = `Preview: ${fileName}`;
+
+      const bodyHtml = renderAllBlocksToHtml(this.cachedBlocks);
+      this.panel.webview.html = this.wrapHtml(bodyHtml);
+      this.lastDocUri = docUri;
+      this.lastDocVersion = docVersion;
+      this.lastScrollTarget = "";
+    }
+
+    // Scroll to nearest block
     const cursorLine = editor.selection.active.line;
-    const blocks = parseDocBlocks(editor.document);
-    const block = findDocBlockAtLine(blocks, cursorLine);
-
-    if (!block) {
-      this.showEmpty();
-      return;
+    const block = findDocBlockAtLine(this.cachedBlocks, cursorLine);
+    if (block) {
+      const blockId = `doc-block-${block.startLine}`;
+      if (blockId !== this.lastScrollTarget) {
+        this.lastScrollTarget = blockId;
+        this.panel.webview.postMessage({ type: "scrollTo", blockId });
+      }
     }
-
-    const key = `${editor.document.uri.toString()}:${block.startLine}`;
-    if (key === this.lastRenderedKey) {
-      return;
-    }
-    this.lastRenderedKey = key;
-
-    const bodyHtml = renderDocToHtml(block);
-    this.panel.webview.html = this.wrapHtml(bodyHtml);
   }
 
   isVisible(): boolean {
@@ -101,11 +115,18 @@ export class DocPreviewPanel {
 
   private showEmpty(): void {
     if (!this.panel) return;
-    if (this.lastRenderedKey === "") return;
-    this.lastRenderedKey = "";
+    if (this.lastDocUri === "" && this.cachedBlocks.length === 0) return;
+    this.resetCache();
     this.panel.webview.html = this.wrapHtml(
-      '<p class="empty">Place cursor on a <code>///</code> doc comment or documented item to see rendered documentation.</p>',
+      '<p class="empty">No doc comments found in this file.</p>',
     );
+  }
+
+  private resetCache(): void {
+    this.cachedBlocks = [];
+    this.lastDocUri = "";
+    this.lastDocVersion = -1;
+    this.lastScrollTarget = "";
   }
 
   private wrapHtml(body: string): string {
@@ -123,6 +144,24 @@ export class DocPreviewPanel {
     padding: 16px 24px;
     line-height: 1.6;
     margin: 0;
+  }
+
+  .doc-section {
+    padding: 8px 12px;
+    border-left: 3px solid transparent;
+    border-radius: 2px;
+    transition: border-color 0.3s, background-color 0.3s;
+  }
+
+  .doc-section.active {
+    border-left-color: var(--vscode-textLink-foreground, #4080d0);
+    background: var(--vscode-editor-selectionBackground, rgba(100,100,200,0.08));
+  }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
+    margin: 16px 0;
   }
 
   .module-header {
@@ -217,6 +256,23 @@ export class DocPreviewPanel {
 </head>
 <body>
 ${body}
+<script>
+  (function() {
+    window.addEventListener('message', function(event) {
+      var msg = event.data;
+      if (msg.type === 'scrollTo') {
+        document.querySelectorAll('.doc-section.active').forEach(function(el) {
+          el.classList.remove('active');
+        });
+        var target = document.getElementById(msg.blockId);
+        if (target) {
+          target.classList.add('active');
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    });
+  })();
+</script>
 </body>
 </html>`;
   }

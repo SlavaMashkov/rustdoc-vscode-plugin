@@ -1,9 +1,23 @@
 import { DocBlock } from "./docParser";
 
 /**
- * Convert doc block lines to HTML.
- * Handles rustdoc markdown: headings, code blocks, paragraphs, lists,
- * bold, italic, links, and reference-style links.
+ * Render all doc blocks in the file as a single HTML document.
+ * Module-level //! blocks appear first, then item docs in source order.
+ * Each block is wrapped in a <section> with an anchor ID for scroll-to.
+ */
+export function renderAllBlocksToHtml(blocks: DocBlock[]): string {
+  if (blocks.length === 0) return "";
+
+  const sections = blocks.map((block) => {
+    const inner = renderDocToHtml(block);
+    return `<section class="doc-section" id="doc-block-${block.startLine}">${inner}</section>`;
+  });
+
+  return sections.join('<hr class="section-divider">');
+}
+
+/**
+ * Convert a single doc block to HTML.
  */
 export function renderDocToHtml(block: DocBlock): string {
   const { content, refs } = extractReferenceLinks(block.lines);

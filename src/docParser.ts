@@ -94,11 +94,14 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
 
 /**
  * Find the doc block that contains or is closest above the given line.
+ * Falls back to the nearest block above the cursor, or the first block.
  */
 export function findDocBlockAtLine(
   blocks: DocBlock[],
   line: number,
 ): DocBlock | undefined {
+  if (blocks.length === 0) return undefined;
+
   // Check if cursor is inside a doc block
   for (const block of blocks) {
     if (line >= block.startLine && line <= block.endLine) {
@@ -108,11 +111,18 @@ export function findDocBlockAtLine(
 
   // Check if cursor is on the signature line (right after a doc block)
   for (const block of blocks) {
-    // Within a few lines after the doc block (attributes, blank lines, signature)
     if (line > block.endLine && line <= block.endLine + 5) {
       return block;
     }
   }
 
-  return undefined;
+  // Fall back to nearest block above cursor
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].startLine <= line) {
+      return blocks[i];
+    }
+  }
+
+  // Cursor is above all blocks — return first
+  return blocks[0];
 }
