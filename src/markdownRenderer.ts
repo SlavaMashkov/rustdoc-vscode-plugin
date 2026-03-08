@@ -164,65 +164,94 @@ function markdownToHtml(md: string, refs: RefMap): string {
   return output.join("\n");
 }
 
-/** Handle inline markdown: bold, italic, code, inline/reference links */
+/**
+ * Handle inline markdown: bold, italic, code, inline/reference links.
+ *
+ * Uses a tokenization approach: first split text into "html" tokens (already safe)
+ * and "raw" tokens (need escaping + further processing). This avoids placeholder hacks.
+ */
 function inlineMarkdown(text: string, refs: RefMap): string {
+  // Combined regex that matches all link forms and inline code in one pass.
+  // Order matters: longer/more specific patterns first.
+  // Groups:
+  //   1,2: [`code`][label]
+  //   3,4: [text][label]
+  //   5,6: [`code`](url)
+  //   7,8: [text](url)
+  //   9:   [`code`]  (shortcut)
+  //   10:  [text]    (shortcut, no backticks)
+  //   11:  `code`    (inline code, not in brackets)
+  const COMBINED_RE =
+    /\[`([^`]+)`\]\[([^\]]+)\]|\[([^\]]+)\]\[([^\]]+)\]|\[`([^`]+)`\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\[`([^`]+)`\]|\[([^\]]+)\]|`([^`]+)`/g;
+
+  const parts: string[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = COMBINED_RE.exec(text)) !== null) {
+    // Add raw text before this match
+    if (match.index > lastIndex) {
+      parts.push(processRawSegment(text.slice(lastIndex, match.index)));
+    }
+
+    if (match[1] !== undefined && match[2] !== undefined) {
+      // [`code`][label]
+      const url = refs.get(normalizeLabel(match[2]));
+      if (url) {
+        parts.push(`<a href="${escapeHtml(url)}"><code>${escapeHtml(match[1])}</code></a>`);
+      } else {
+        parts.push(`<code>${escapeHtml(match[1])}</code>`);
+      }
+    } else if (match[3] !== undefined && match[4] !== undefined) {
+      // [text][label]
+      const url = refs.get(normalizeLabel(match[4]));
+      if (url) {
+        parts.push(`<a href="${escapeHtml(url)}">${escapeHtml(match[3])}</a>`);
+      } else {
+        parts.push(processRawSegment(match[0]));
+      }
+    } else if (match[5] !== undefined && match[6] !== undefined) {
+      // [`code`](url)
+      parts.push(`<a href="${escapeHtml(match[6])}"><code>${escapeHtml(match[5])}</code></a>`);
+    } else if (match[7] !== undefined && match[8] !== undefined) {
+      // [text](url)
+      parts.push(`<a href="${escapeHtml(match[8])}">${escapeHtml(match[7])}</a>`);
+    } else if (match[9] !== undefined) {
+      // [`code`] shortcut
+      const url = refs.get(normalizeLabel("`" + match[9] + "`"));
+      if (url) {
+        parts.push(`<a href="${escapeHtml(url)}"><code>${escapeHtml(match[9])}</code></a>`);
+      } else {
+        parts.push(`<code>${escapeHtml(match[9])}</code>`);
+      }
+    } else if (match[10] !== undefined) {
+      // [text] shortcut
+      const url = refs.get(normalizeLabel(match[10]));
+      if (url) {
+        parts.push(`<a href="${escapeHtml(url)}">${escapeHtml(match[10])}</a>`);
+      } else {
+        parts.push(processRawSegment(match[0]));
+      }
+    } else if (match[11] !== undefined) {
+      // `code`
+      parts.push(`<code>${escapeHtml(match[11])}</code>`);
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining raw text
+  if (lastIndex < text.length) {
+    parts.push(processRawSegment(text.slice(lastIndex)));
+  }
+
+  return parts.join("");
+}
+
+/** Process a raw text segment: escape HTML, then apply bold/italic */
+function processRawSegment(text: string): string {
   let result = escapeHtml(text);
-
-  // Inline code (do first to protect code spans from further processing)
-  // We'll use a placeholder approach to protect code spans
-  const codeSpans: string[] = [];
-  result = result.replace(/`([^`]+)`/g, (_match, code) => {
-    const idx = codeSpans.length;
-    codeSpans.push(`<code>${code}</code>`);
-    return `\x00CODE${idx}\x00`;
-  });
-
-  // Bold (before italic)
   result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  // Italic
   result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
-  // Inline links [text](url)
-  result = result.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2">$1</a>',
-  );
-
-  // Reference links [text][label]
-  result = result.replace(/\[([^\]]+)\]\[([^\]]+)\]/g, (_match, text, label) => {
-    const url = refs.get(normalizeLabel(label));
-    if (url) {
-      return `<a href="${escapeHtml(url)}">${text}</a>`;
-    }
-    return `[${text}][${label}]`;
-  });
-
-  // Shortcut reference links [`name`] or [name]
-  // Match [`code`] first (with backticks inside brackets)
-  result = result.replace(/\[`([^`]+)`\]/g, (_match, name) => {
-    const url = refs.get(normalizeLabel("`" + name + "`"));
-    if (url) {
-      return `<a href="${escapeHtml(url)}"><code>${escapeHtml(name)}</code></a>`;
-    }
-    // No ref found — just render as code
-    return `<code>${escapeHtml(name)}</code>`;
-  });
-
-  // Shortcut reference links [name] (without backticks)
-  result = result.replace(/\[([^\]]+)\]/g, (_match, name) => {
-    // Skip if it looks like it was already processed (contains HTML)
-    if (name.includes("<")) return `[${name}]`;
-    const url = refs.get(normalizeLabel(name));
-    if (url) {
-      return `<a href="${escapeHtml(url)}">${name}</a>`;
-    }
-    return `[${name}]`;
-  });
-
-  // Restore code spans
-  result = result.replace(/\x00CODE(\d+)\x00/g, (_match, idx) => {
-    return codeSpans[parseInt(idx, 10)];
-  });
-
   return result;
 }
