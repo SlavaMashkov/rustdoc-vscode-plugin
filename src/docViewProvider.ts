@@ -1,35 +1,60 @@
 import * as vscode from "vscode";
-import { parseDocBlocks, findDocBlockAtLine } from "./docParser";
+import { parseDocBlocks, findDocBlockAtLine, DocBlock } from "./docParser";
 import { renderDocToHtml } from "./markdownRenderer";
 
-export class DocViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = "rustdocViewer.docView";
-
-  private view?: vscode.WebviewView;
+export class DocPreviewPanel {
+  private panel: vscode.WebviewPanel | undefined;
   private lastRenderedKey = "";
+  private disposables: vscode.Disposable[] = [];
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
-  resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken,
-  ): void {
-    this.view = webviewView;
+  open(): void {
+    if (this.panel) {
+      this.panel.reveal(vscode.ViewColumn.Beside, true);
+      this.update();
+      return;
+    }
 
-    webviewView.webview.options = {
-      enableScripts: false,
-    };
+    this.panel = vscode.window.createWebviewPanel(
+      "rustdocPreview",
+      "Rust Doc Preview",
+      {
+        viewColumn: vscode.ViewColumn.Beside,
+        preserveFocus: true,
+      },
+      {
+        enableScripts: false,
+        localResourceRoots: [],
+      },
+    );
 
-    this.updateForCurrentEditor();
+    this.panel.onDidDispose(
+      () => {
+        this.panel = undefined;
+        this.lastRenderedKey = "";
+        this.disposables.forEach((d) => d.dispose());
+        this.disposables = [];
+      },
+      null,
+      this.disposables,
+    );
+
+    this.update();
   }
 
-  updateForCurrentEditor(): void {
+  update(): void {
+    if (!this.panel) return;
+
     const editor = vscode.window.activeTextEditor;
-    if (!this.view || !editor || editor.document.languageId !== "rust") {
+    if (!editor || editor.document.languageId !== "rust") {
       this.showEmpty();
       return;
     }
+
+    // Update panel title to match the file
+    const fileName = editor.document.fileName.split("/").pop() ?? "Rust Doc";
+    this.panel.title = `Preview: ${fileName}`;
 
     const cursorLine = editor.selection.active.line;
     const blocks = parseDocBlocks(editor.document);
@@ -40,7 +65,6 @@ export class DocViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Avoid re-rendering the same block
     const key = `${editor.document.uri.toString()}:${block.startLine}`;
     if (key === this.lastRenderedKey) {
       return;
@@ -48,14 +72,22 @@ export class DocViewProvider implements vscode.WebviewViewProvider {
     this.lastRenderedKey = key;
 
     const bodyHtml = renderDocToHtml(block);
-    this.view.webview.html = this.wrapHtml(bodyHtml);
+    this.panel.webview.html = this.wrapHtml(bodyHtml);
+  }
+
+  isVisible(): boolean {
+    return this.panel !== undefined;
+  }
+
+  dispose(): void {
+    this.panel?.dispose();
   }
 
   private showEmpty(): void {
-    if (!this.view) return;
+    if (!this.panel) return;
     if (this.lastRenderedKey === "") return;
     this.lastRenderedKey = "";
-    this.view.webview.html = this.wrapHtml(
+    this.panel.webview.html = this.wrapHtml(
       '<p class="empty">Place cursor on a <code>///</code> doc comment or documented item to see rendered documentation.</p>',
     );
   }
@@ -71,9 +103,9 @@ export class DocViewProvider implements vscode.WebviewViewProvider {
     font-family: var(--vscode-font-family, sans-serif);
     font-size: var(--vscode-font-size, 13px);
     color: var(--vscode-foreground);
-    background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-    padding: 12px 16px;
-    line-height: 1.5;
+    background: var(--vscode-editor-background);
+    padding: 16px 24px;
+    line-height: 1.6;
     margin: 0;
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "rustdoc-viewer",
   "displayName": "Rust Doc Viewer",
-  "description": "Side panel that renders Rust doc comments as formatted documentation",
+  "description": "Preview Rust doc comments as formatted documentation, side by side with code",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.85.0"
@@ -14,30 +14,22 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "panel": [
-        {
-          "id": "rustdocPanel",
-          "title": "Rust Doc",
-          "icon": "$(book)"
-        }
-      ]
-    },
-    "views": {
-      "rustdocPanel": [
-        {
-          "type": "webview",
-          "id": "rustdocViewer.docView",
-          "name": "Rust Doc"
-        }
-      ]
-    },
     "commands": [
       {
-        "command": "rustdocViewer.showDocPanel",
-        "title": "Rust Doc: Show Documentation Panel"
+        "command": "rustdocViewer.openPreview",
+        "title": "Rust Doc: Open Preview to the Side",
+        "icon": "$(open-preview)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "editorLangId == rust",
+          "command": "rustdocViewer.openPreview",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

@@ -1,36 +1,37 @@
 import * as vscode from "vscode";
-import { DocViewProvider } from "./docViewProvider";
+import { DocPreviewPanel } from "./docViewProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new DocViewProvider(context.extensionUri);
+  const preview = new DocPreviewPanel(context.extensionUri);
 
+  // Button in editor title bar (top-right, like markdown preview)
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      DocViewProvider.viewType,
-      provider,
-    ),
+    vscode.commands.registerCommand("rustdocViewer.openPreview", () => {
+      preview.open();
+    }),
   );
 
-  // Update panel when cursor moves
+  // Update when cursor moves
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorSelection(() => {
-      provider.updateForCurrentEditor();
+      if (preview.isVisible()) {
+        preview.update();
+      }
     }),
   );
 
-  // Update panel when switching files
+  // Update when switching files
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
-      provider.updateForCurrentEditor();
+      if (preview.isVisible()) {
+        preview.update();
+      }
     }),
   );
 
-  // Show panel command
-  context.subscriptions.push(
-    vscode.commands.registerCommand("rustdocViewer.showDocPanel", () => {
-      vscode.commands.executeCommand("rustdocViewer.docView.focus");
-    }),
-  );
+  context.subscriptions.push({
+    dispose: () => preview.dispose(),
+  });
 }
 
 export function deactivate(): void {}
