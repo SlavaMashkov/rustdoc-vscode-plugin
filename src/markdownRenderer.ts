@@ -1,19 +1,28 @@
-import { DocBlock } from "./docParser";
+import { DocBlock, FileSegment } from "./docParser";
 
 /**
- * Render all doc blocks in the file as a single HTML document.
- * Module-level //! blocks appear first, then item docs in source order.
- * Each block is wrapped in a <section> with an anchor ID for scroll-to.
+ * Render the entire file as interleaved code blocks and rendered doc HTML.
+ * Each segment gets data-line-start/data-line-end attributes for scroll sync.
  */
-export function renderAllBlocksToHtml(blocks: DocBlock[]): string {
-  if (blocks.length === 0) return "";
+export function renderFullFileToHtml(segments: FileSegment[]): string {
+  if (segments.length === 0) return "";
 
-  const sections = blocks.map((block) => {
-    const inner = renderDocToHtml(block);
-    return `<section class="doc-section" id="doc-block-${block.startLine}">${inner}</section>`;
-  });
-
-  return sections.join('<hr class="section-divider">');
+  return segments
+    .map((seg) => {
+      if (seg.kind === "code") {
+        const lineSpans = seg.lines
+          .map(
+            (line, i) =>
+              `<span data-line="${seg.startLine + i}">${escapeHtml(line) || " "}</span>`,
+          )
+          .join("\n");
+        return `<pre class="code-segment" data-line-start="${seg.startLine}" data-line-end="${seg.endLine}">${lineSpans}</pre>`;
+      } else {
+        const inner = renderDocToHtml(seg.block);
+        return `<div class="doc-segment" data-line-start="${seg.startLine}" data-line-end="${seg.endLine}">${inner}</div>`;
+      }
+    })
+    .join("");
 }
 
 /**

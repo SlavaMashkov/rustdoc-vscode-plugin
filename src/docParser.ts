@@ -126,3 +126,62 @@ export function findDocBlockAtLine(
   // Cursor is above all blocks — return first
   return blocks[0];
 }
+
+export type FileSegment =
+  | { kind: "code"; startLine: number; endLine: number; lines: string[] }
+  | { kind: "doc"; startLine: number; endLine: number; block: DocBlock };
+
+/**
+ * Parse the entire file into an ordered list of code and doc segments.
+ * Code segments fill the gaps between doc blocks.
+ */
+export function parseFileSegments(
+  document: vscode.TextDocument,
+): FileSegment[] {
+  const blocks = parseDocBlocks(document);
+  const segments: FileSegment[] = [];
+  const lineCount = document.lineCount;
+  let currentLine = 0;
+
+  for (const block of blocks) {
+    // Code gap before this doc block
+    if (currentLine < block.startLine) {
+      const codeLines: string[] = [];
+      for (let i = currentLine; i < block.startLine; i++) {
+        codeLines.push(document.lineAt(i).text);
+      }
+      segments.push({
+        kind: "code",
+        startLine: currentLine,
+        endLine: block.startLine - 1,
+        lines: codeLines,
+      });
+    }
+
+    // Doc segment
+    segments.push({
+      kind: "doc",
+      startLine: block.startLine,
+      endLine: block.endLine,
+      block,
+    });
+
+    currentLine = block.endLine + 1;
+  }
+
+  // Trailing code after last doc block
+  if (currentLine < lineCount) {
+    const codeLines: string[] = [];
+    for (let i = currentLine; i < lineCount; i++) {
+      codeLines.push(document.lineAt(i).text);
+    }
+    segments.push({
+      kind: "code",
+      startLine: currentLine,
+      endLine: lineCount - 1,
+      lines: codeLines,
+    });
+  }
+
+  return segments;
+}

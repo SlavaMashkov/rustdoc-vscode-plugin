@@ -1,17 +1,19 @@
 import * as vscode from "vscode";
-import { parseDocBlocks, findDocBlockAtLine, DocBlock } from "./docParser";
-import { renderAllBlocksToHtml } from "./markdownRenderer";
+import { parseFileSegments, FileSegment } from "./docParser";
+import { renderFullFileToHtml } from "./markdownRenderer";
 
 export class DocPreviewPanel {
   private panel: vscode.WebviewPanel | undefined;
   private disposables: vscode.Disposable[] = [];
   private lastRustEditor: vscode.TextEditor | undefined;
 
-  /** Cached state to avoid full re-renders on every cursor move */
-  private cachedBlocks: DocBlock[] = [];
+  private cachedSegments: FileSegment[] = [];
   private lastDocUri = "";
   private lastDocVersion = -1;
-  private lastScrollTarget = "";
+
+  /** Suppress flag to break scroll sync loops */
+  private ignoreNextWebviewScroll = false;
+  private ignoreTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -33,6 +35,16 @@ export class DocPreviewPanel {
         enableScripts: true,
         localResourceRoots: [],
       },
+    );
+
+    this.panel.webview.onDidReceiveMessage(
+      (msg) => {
+        if (msg.type === "scrollEditorToLine") {
+          this.handleWebviewScroll(msg.line);
+        }
+      },
+      null,
+      this.disposables,
     );
 
     this.panel.onDidDispose(
@@ -58,14 +70,8 @@ export class DocPreviewPanel {
   update(): void {
     if (!this.panel) return;
 
-    const active = vscode.window.activeTextEditor;
-    const editor =
-      active && active.document.languageId === "rust"
-        ? active
-        : this.lastRustEditor;
-
-    if (!editor || editor.document.isClosed) {
-      this.lastRustEditor = undefined;
+    const editor = this.getRustEditor();
+    if (!editor) {
       this.showEmpty();
       return;
     }
@@ -73,36 +79,33 @@ export class DocPreviewPanel {
     const docUri = editor.document.uri.toString();
     const docVersion = editor.document.version;
 
-    // Full re-render when file or content changes
     if (docUri !== this.lastDocUri || docVersion !== this.lastDocVersion) {
-      this.cachedBlocks = parseDocBlocks(editor.document);
-
-      if (this.cachedBlocks.length === 0) {
-        this.showEmpty();
-        return;
-      }
+      this.cachedSegments = parseFileSegments(editor.document);
 
       const fileName =
         editor.document.fileName.split("/").pop() ?? "Rust Doc";
       this.panel.title = `Preview: ${fileName}`;
 
-      const bodyHtml = renderAllBlocksToHtml(this.cachedBlocks);
+      const bodyHtml = renderFullFileToHtml(this.cachedSegments);
       this.panel.webview.html = this.wrapHtml(bodyHtml);
       this.lastDocUri = docUri;
       this.lastDocVersion = docVersion;
-      this.lastScrollTarget = "";
-    }
 
-    // Scroll to nearest block
-    const cursorLine = editor.selection.active.line;
-    const block = findDocBlockAtLine(this.cachedBlocks, cursorLine);
-    if (block) {
-      const blockId = `doc-block-${block.startLine}`;
-      if (blockId !== this.lastScrollTarget) {
-        this.lastScrollTarget = blockId;
-        this.panel.webview.postMessage({ type: "scrollTo", blockId });
-      }
+      // Restore scroll position after re-render
+      const topLine = editor.visibleRanges[0]?.start.line ?? 0;
+      setTimeout(() => {
+        this.sendScrollToLine(topLine);
+      }, 50);
     }
+  }
+
+  /** Sync preview scroll to editor's visible range */
+  syncScroll(editor: vscode.TextEditor): void {
+    if (!this.panel) return;
+    if (editor.document.languageId !== "rust") return;
+
+    const topLine = editor.visibleRanges[0]?.start.line ?? 0;
+    this.sendScrollToLine(topLine);
   }
 
   isVisible(): boolean {
@@ -110,23 +113,53 @@ export class DocPreviewPanel {
   }
 
   dispose(): void {
+    if (this.ignoreTimer) clearTimeout(this.ignoreTimer);
     this.panel?.dispose();
+  }
+
+  private getRustEditor(): vscode.TextEditor | undefined {
+    const active = vscode.window.activeTextEditor;
+    if (active && active.document.languageId === "rust") return active;
+    if (this.lastRustEditor && !this.lastRustEditor.document.isClosed) {
+      return this.lastRustEditor;
+    }
+    this.lastRustEditor = undefined;
+    return undefined;
+  }
+
+  private sendScrollToLine(line: number): void {
+    if (!this.panel) return;
+    this.ignoreNextWebviewScroll = true;
+    if (this.ignoreTimer) clearTimeout(this.ignoreTimer);
+    this.ignoreTimer = setTimeout(() => {
+      this.ignoreNextWebviewScroll = false;
+    }, 200);
+    this.panel.webview.postMessage({ type: "scrollToLine", line });
+  }
+
+  private handleWebviewScroll(line: number): void {
+    if (this.ignoreNextWebviewScroll) return;
+
+    const editor = this.getRustEditor();
+    if (!editor) return;
+
+    const range = new vscode.Range(line, 0, line, 0);
+    editor.revealRange(range, vscode.TextEditorRevealType.AtTop);
   }
 
   private showEmpty(): void {
     if (!this.panel) return;
-    if (this.lastDocUri === "" && this.cachedBlocks.length === 0) return;
+    if (this.lastDocUri === "" && this.cachedSegments.length === 0) return;
     this.resetCache();
     this.panel.webview.html = this.wrapHtml(
-      '<p class="empty">No doc comments found in this file.</p>',
+      '<p class="empty">No Rust file with doc comments is open.</p>',
     );
   }
 
   private resetCache(): void {
-    this.cachedBlocks = [];
+    this.cachedSegments = [];
     this.lastDocUri = "";
     this.lastDocVersion = -1;
-    this.lastScrollTarget = "";
   }
 
   private wrapHtml(body: string): string {
@@ -141,33 +174,40 @@ export class DocPreviewPanel {
     font-size: var(--vscode-font-size, 13px);
     color: var(--vscode-foreground);
     background: var(--vscode-editor-background);
-    padding: 16px 24px;
+    padding: 0;
     line-height: 1.6;
     margin: 0;
   }
 
-  .doc-section {
-    padding: 8px 12px;
-    border-left: 3px solid transparent;
-    border-radius: 2px;
-    transition: border-color 0.3s, background-color 0.3s;
-  }
-
-  .doc-section.active {
-    border-left-color: var(--vscode-textLink-foreground, #4080d0);
-    background: var(--vscode-editor-selectionBackground, rgba(100,100,200,0.08));
-  }
-
-  .section-divider {
+  /* Code segments */
+  .code-segment {
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+    line-height: 1.5;
+    margin: 0;
+    padding: 0 16px;
+    background: var(--vscode-editor-background);
     border: none;
-    border-top: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
-    margin: 16px 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .code-segment span[data-line] {
+    display: block;
+  }
+
+  /* Doc segments */
+  .doc-segment {
+    padding: 8px 20px;
+    border-left: 3px solid var(--vscode-textLink-foreground, #4080d0);
+    margin: 4px 0;
+    background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.05));
   }
 
   .module-header {
     font-size: 1.2em;
     font-weight: 600;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
     color: var(--vscode-foreground);
@@ -176,8 +216,8 @@ export class DocPreviewPanel {
   .signature {
     background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.1));
     border-left: 3px solid var(--vscode-textLink-foreground, #4080d0);
-    padding: 8px 12px;
-    margin-bottom: 16px;
+    padding: 6px 10px;
+    margin-bottom: 12px;
     border-radius: 2px;
   }
 
@@ -191,20 +231,20 @@ export class DocPreviewPanel {
 
   h3 {
     font-size: 1.1em;
-    margin: 20px 0 8px 0;
-    padding-bottom: 4px;
+    margin: 16px 0 6px 0;
+    padding-bottom: 3px;
     border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
     color: var(--vscode-foreground);
   }
 
   h4, h5, h6 {
     font-size: 1em;
-    margin: 16px 0 6px 0;
+    margin: 12px 0 4px 0;
     color: var(--vscode-foreground);
   }
 
   p {
-    margin: 8px 0;
+    margin: 6px 0;
   }
 
   code {
@@ -217,12 +257,18 @@ export class DocPreviewPanel {
 
   pre {
     background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.15));
-    padding: 10px 12px;
+    padding: 8px 10px;
     border-radius: 4px;
     overflow-x: auto;
-    margin: 8px 0;
+    margin: 6px 0;
   }
 
+  /* Code blocks inside doc segments — not the top-level code segments */
+  .doc-segment pre {
+    background: var(--vscode-textCodeBlock-background, rgba(127,127,127,0.15));
+  }
+
+  .doc-segment pre code,
   pre code {
     background: none;
     padding: 0;
@@ -231,12 +277,12 @@ export class DocPreviewPanel {
   }
 
   ul {
-    margin: 8px 0;
+    margin: 6px 0;
     padding-left: 20px;
   }
 
   li {
-    margin: 4px 0;
+    margin: 3px 0;
   }
 
   a {
@@ -251,27 +297,95 @@ export class DocPreviewPanel {
   .empty {
     color: var(--vscode-descriptionForeground);
     font-style: italic;
+    padding: 16px 24px;
   }
 </style>
 </head>
 <body>
 ${body}
 <script>
-  (function() {
-    window.addEventListener('message', function(event) {
-      var msg = event.data;
-      if (msg.type === 'scrollTo') {
-        document.querySelectorAll('.doc-section.active').forEach(function(el) {
-          el.classList.remove('active');
-        });
-        var target = document.getElementById(msg.blockId);
-        if (target) {
-          target.classList.add('active');
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+(function() {
+  var vscodeApi = acquireVsCodeApi();
+  var ignoreScroll = false;
+  var ignoreTimer = null;
+
+  // Find the DOM element for a given source line
+  function findElementForLine(line) {
+    var segments = document.querySelectorAll('[data-line-start]');
+    var best = null;
+    for (var i = 0; i < segments.length; i++) {
+      var start = parseInt(segments[i].getAttribute('data-line-start'), 10);
+      var end = parseInt(segments[i].getAttribute('data-line-end'), 10);
+      if (line >= start && line <= end) {
+        // Check for exact line span inside code segments
+        var exact = segments[i].querySelector('[data-line="' + line + '"]');
+        if (exact) return exact;
+        return segments[i];
       }
-    });
-  })();
+      if (start <= line) best = segments[i];
+    }
+    return best;
+  }
+
+  // Get the source line at the top of the viewport
+  function getLineAtViewportTop() {
+    var segments = document.querySelectorAll('[data-line-start]');
+    var scrollTop = window.scrollY;
+
+    for (var i = 0; i < segments.length; i++) {
+      var rect = segments[i].getBoundingClientRect();
+      var segTop = rect.top + scrollTop;
+      var segBottom = segTop + rect.height;
+
+      if (segBottom > scrollTop) {
+        var start = parseInt(segments[i].getAttribute('data-line-start'), 10);
+        var end = parseInt(segments[i].getAttribute('data-line-end'), 10);
+
+        // Try exact line spans for code segments
+        var lineSpans = segments[i].querySelectorAll('[data-line]');
+        if (lineSpans.length > 0) {
+          for (var j = 0; j < lineSpans.length; j++) {
+            var spanRect = lineSpans[j].getBoundingClientRect();
+            if (spanRect.top + scrollTop + spanRect.height > scrollTop) {
+              return parseInt(lineSpans[j].getAttribute('data-line'), 10);
+            }
+          }
+        }
+
+        // Interpolate for doc segments
+        var progress = Math.max(0, (scrollTop - segTop) / rect.height);
+        return Math.round(start + progress * (end - start));
+      }
+    }
+    return 0;
+  }
+
+  // Handle scroll-to-line from extension
+  window.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (msg.type === 'scrollToLine') {
+      ignoreScroll = true;
+      if (ignoreTimer) clearTimeout(ignoreTimer);
+      ignoreTimer = setTimeout(function() { ignoreScroll = false; }, 200);
+
+      var el = findElementForLine(msg.line);
+      if (el) {
+        el.scrollIntoView({ block: 'start' });
+      }
+    }
+  });
+
+  // Send scroll position back to extension (debounced)
+  var scrollTimer = null;
+  window.addEventListener('scroll', function() {
+    if (ignoreScroll) return;
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(function() {
+      var line = getLineAtViewportTop();
+      vscodeApi.postMessage({ type: 'scrollEditorToLine', line: line });
+    }, 50);
+  });
+})();
 </script>
 </body>
 </html>`;

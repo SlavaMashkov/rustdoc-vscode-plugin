@@ -12,17 +12,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
   preview.trackEditor(vscode.window.activeTextEditor);
 
-  // Update when cursor moves (scroll to nearest block)
+  // Scroll sync: editor viewport → preview
   context.subscriptions.push(
-    vscode.window.onDidChangeTextEditorSelection((e) => {
+    vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       preview.trackEditor(e.textEditor);
       if (preview.isVisible()) {
-        preview.update();
+        preview.syncScroll(e.textEditor);
       }
     }),
   );
 
-  // Update when switching files (full re-render)
+  // Re-render when switching files
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       preview.trackEditor(editor);
@@ -32,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Re-render when document content changes (debounced)
+  // Re-render on document content change (debounced)
   let docChangeTimer: ReturnType<typeof setTimeout> | undefined;
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
