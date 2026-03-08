@@ -125,6 +125,15 @@ export class DocPreviewPanel {
     margin: 0;
   }
 
+  .module-header {
+    font-size: 1.2em;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
+    color: var(--vscode-foreground);
+  }
+
   .signature {
     background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.1));
     border-left: 3px solid var(--vscode-textLink-foreground, #4080d0);

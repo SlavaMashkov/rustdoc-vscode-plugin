@@ -3,13 +3,16 @@ import * as vscode from "vscode";
 export interface DocBlock {
   startLine: number;
   endLine: number;
-  /** Raw doc content lines (without leading `/// `) */
+  /** Raw doc content lines (without leading `/// ` or `//! `) */
   lines: string[];
   /** The signature line right after the doc block (pub fn ..., pub struct ..., etc.) */
   signature: string | undefined;
+  /** Whether this is a module-level `//!` doc comment */
+  isModuleDoc: boolean;
 }
 
 const DOC_COMMENT_RE = /^(\s*)\/\/\/(.*)$/;
+const MODULE_DOC_COMMENT_RE = /^(\s*)\/\/!(.*)$/;
 const SIGNATURE_RE = /^\s*(pub\s+)?(fn|struct|enum|trait|type|const|static|mod|impl|macro)\b/;
 
 export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
@@ -19,9 +22,32 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
 
   while (i < lineCount) {
     const lineText = document.lineAt(i).text;
-    const match = DOC_COMMENT_RE.exec(lineText);
+    const moduleMatch = MODULE_DOC_COMMENT_RE.exec(lineText);
+    const docMatch = DOC_COMMENT_RE.exec(lineText);
 
-    if (match) {
+    if (moduleMatch) {
+      // //! module-level doc comment block
+      const startLine = i;
+      const docLines: string[] = [];
+
+      while (i < lineCount) {
+        const text = document.lineAt(i).text;
+        const m = MODULE_DOC_COMMENT_RE.exec(text);
+        if (!m) break;
+        const content = m[2].startsWith(" ") ? m[2].slice(1) : m[2];
+        docLines.push(content);
+        i++;
+      }
+
+      blocks.push({
+        startLine,
+        endLine: i - 1,
+        lines: docLines,
+        signature: undefined,
+        isModuleDoc: true,
+      });
+    } else if (docMatch) {
+      // /// item-level doc comment block
       const startLine = i;
       const docLines: string[] = [];
 
@@ -44,9 +70,7 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
           continue;
         }
         if (SIGNATURE_RE.test(text)) {
-          // Collect multi-line signatures (e.g. generic bounds with `where`)
           let sig = text;
-          // Clean up: remove trailing `{`, trim
           sig = sig.replace(/\s*\{\s*$/, "").trimEnd();
           signature = sig;
         }
@@ -58,6 +82,7 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
         endLine: i - 1,
         lines: docLines,
         signature,
+        isModuleDoc: false,
       });
     } else {
       i++;

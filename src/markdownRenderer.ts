@@ -8,11 +8,16 @@ export function renderDocToHtml(block: DocBlock): string {
   const markdown = block.lines.join("\n");
   const html = markdownToHtml(markdown);
 
-  const signatureHtml = block.signature
-    ? `<div class="signature"><code>${escapeHtml(block.signature)}</code></div>`
-    : "";
+  let headerHtml: string;
+  if (block.isModuleDoc) {
+    headerHtml = '<div class="module-header">Module Documentation</div>';
+  } else if (block.signature) {
+    headerHtml = `<div class="signature"><code>${escapeHtml(block.signature)}</code></div>`;
+  } else {
+    headerHtml = "";
+  }
 
-  return signatureHtml + html;
+  return headerHtml + html;
 }
 
 function escapeHtml(text: string): string {
