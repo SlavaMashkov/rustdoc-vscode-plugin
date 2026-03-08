@@ -220,7 +220,7 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       // [text][label]
       const url = refs.get(normalizeLabel(match[4]));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}">${escapeHtml(match[3])}</a>`);
+        parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[3])}</a>`);
       } else {
         parts.push(processRawSegment(match[0]));
       }
@@ -229,7 +229,7 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       parts.push(`<a href="${escapeHtml(match[6])}"><code>${escapeHtml(match[5])}</code></a>`);
     } else if (match[7] !== undefined && match[8] !== undefined) {
       // [text](url)
-      parts.push(`<a href="${escapeHtml(match[8])}">${escapeHtml(match[7])}</a>`);
+      parts.push(`<a href="${escapeHtml(match[8])}">${formatLinkText(match[7])}</a>`);
     } else if (match[9] !== undefined) {
       // [`code`] shortcut
       const url = refs.get(normalizeLabel("`" + match[9] + "`"));
@@ -242,7 +242,7 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       // [text] shortcut
       const url = refs.get(normalizeLabel(match[10]));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}">${escapeHtml(match[10])}</a>`);
+        parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[10])}</a>`);
       } else {
         parts.push(processRawSegment(match[0]));
       }
@@ -260,6 +260,12 @@ function inlineMarkdown(text: string, refs: RefMap): string {
   }
 
   return parts.join("");
+}
+
+/** Format link text: escape HTML and render inline code/bold/italic within it */
+function formatLinkText(text: string): string {
+  // Handle backtick code spans within link text
+  return escapeHtml(text).replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 /** Process a raw text segment: escape HTML, then apply bold/italic */
