@@ -41,6 +41,8 @@ export class DocPreviewPanel {
       (msg) => {
         if (msg.type === "scrollEditorToLine") {
           this.handleWebviewScroll(msg.line);
+        } else if (msg.type === "navigateToSymbol") {
+          this.navigateToSymbol(msg.path);
         }
       },
       null,
@@ -145,6 +147,40 @@ export class DocPreviewPanel {
 
     const range = new vscode.Range(line, 0, line, 0);
     editor.revealRange(range, vscode.TextEditorRevealType.AtTop);
+  }
+
+  private async navigateToSymbol(path: string): Promise<void> {
+    // Extract the last component for searching (e.g. "Builder::write_style" → "write_style")
+    const parts = path.split("::");
+    const searchName = parts[parts.length - 1];
+
+    const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
+      "vscode.executeWorkspaceSymbolProvider",
+      searchName,
+    );
+
+    if (!symbols || symbols.length === 0) return;
+
+    // Try to find exact match: if path has multiple parts, match the container
+    let best: vscode.SymbolInformation | undefined;
+    if (parts.length > 1) {
+      const container = parts[parts.length - 2];
+      best = symbols.find(
+        (s) => s.name === searchName && s.containerName?.includes(container),
+      );
+    }
+    if (!best) {
+      best = symbols.find((s) => s.name === searchName);
+    }
+    if (!best) {
+      best = symbols[0];
+    }
+
+    const doc = await vscode.workspace.openTextDocument(best.location.uri);
+    await vscode.window.showTextDocument(doc, {
+      selection: best.location.range,
+      viewColumn: vscode.ViewColumn.One,
+    });
   }
 
   private showEmpty(): void {
@@ -292,6 +328,16 @@ export class DocPreviewPanel {
     text-decoration: underline;
   }
 
+  .intra-doc {
+    color: var(--vscode-textLink-foreground, #4080d0);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .intra-doc:hover {
+    text-decoration: underline;
+  }
+
   .empty {
     color: var(--vscode-descriptionForeground);
     font-style: italic;
@@ -426,6 +472,21 @@ ${body}
       var line = getLineAtViewportTop();
       vscodeApi.postMessage({ type: 'scrollEditorToLine', line: line });
     }, 30);
+  });
+  // Handle clicks on intra-doc links
+  document.addEventListener('click', function(event) {
+    var target = event.target;
+    while (target && target !== document.body) {
+      if (target.classList && target.classList.contains('intra-doc')) {
+        event.preventDefault();
+        var path = target.getAttribute('data-path');
+        if (path) {
+          vscodeApi.postMessage({ type: 'navigateToSymbol', path: path });
+        }
+        return;
+      }
+      target = target.parentElement;
+    }
   });
 })();
 </script>

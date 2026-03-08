@@ -186,6 +186,16 @@ pub fn try_init() -> Result<(), String> {
     Ok(())
 }
 
+/// A builder for configuring the logger.
+///
+/// Use [`Builder::new`] to create an instance. Call [`Builder::build`] to
+/// produce a [`Logger`]. You can also use [`Level`] to set the minimum level.
+///
+/// See also [`try_init`] for global initialization.
+pub struct Builder {
+    level: Level,
+}
+
 impl fmt::Display for Level {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

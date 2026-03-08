@@ -243,7 +243,7 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       if (url) {
         parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[3])}</a>`);
       } else {
-        parts.push(processRawSegment(match[0]));
+        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[4])}">${formatLinkText(match[3])}</a>`);
       }
     } else if (match[5] !== undefined && match[6] !== undefined) {
       // [`code`](url)
@@ -257,7 +257,8 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       if (url) {
         parts.push(`<a href="${escapeHtml(url)}"><code>${escapeHtml(match[9])}</code></a>`);
       } else {
-        parts.push(`<code>${escapeHtml(match[9])}</code>`);
+        // Intra-doc link: clickable symbol navigation
+        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[9])}"><code>${escapeHtml(match[9])}</code></a>`);
       }
     } else if (match[10] !== undefined) {
       // [text] shortcut
@@ -265,7 +266,8 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       if (url) {
         parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[10])}</a>`);
       } else {
-        parts.push(processRawSegment(match[0]));
+        // Intra-doc link: clickable symbol navigation
+        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[10])}">${formatLinkText(match[10])}</a>`);
       }
     } else if (match[11] !== undefined) {
       // `code`
