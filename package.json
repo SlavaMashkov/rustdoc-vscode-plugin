@@ -2,7 +2,7 @@
   "name": "rustdoc-viewer",
   "displayName": "Rust Doc Viewer",
   "description": "Preview Rust doc comments as formatted documentation, side by side with code",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "engines": {
     "vscode": "^1.85.0"
   },

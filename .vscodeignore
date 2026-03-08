@@ -1,0 +1,9 @@
+src/**
+test-files/**
+.vscode/**
+node_modules/**
+tsconfig.json
+.gitignore
+CLAUDE.md
+**/*.ts
+**/*.js.map
