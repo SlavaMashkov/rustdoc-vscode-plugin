@@ -323,22 +323,36 @@ ${body}
   var ignoreScroll = false;
   var ignoreTimer = null;
 
-  // Find the DOM element for a given source line
-  function findElementForLine(line) {
+  // Calculate exact pixel scroll position for a given source line
+  function getScrollPositionForLine(line) {
     var segments = document.querySelectorAll('[data-line-start]');
-    var best = null;
+    var lastSegEnd = null;
+
     for (var i = 0; i < segments.length; i++) {
       var start = parseInt(segments[i].getAttribute('data-line-start'), 10);
       var end = parseInt(segments[i].getAttribute('data-line-end'), 10);
+
       if (line >= start && line <= end) {
-        // Check for exact line span inside code segments
+        // For code segments, find exact line span
         var exact = segments[i].querySelector('[data-line="' + line + '"]');
-        if (exact) return exact;
-        return segments[i];
+        if (exact) {
+          return exact.getBoundingClientRect().top + window.scrollY;
+        }
+        // For doc segments, interpolate proportionally
+        var rect = segments[i].getBoundingClientRect();
+        var segTop = rect.top + window.scrollY;
+        var progress = (end > start) ? (line - start) / (end - start) : 0;
+        return segTop + progress * rect.height;
       }
-      if (start <= line) best = segments[i];
+      if (start <= line) lastSegEnd = segments[i];
     }
-    return best;
+
+    // Line is past all segments or between segments — use last known
+    if (lastSegEnd) {
+      var rect = lastSegEnd.getBoundingClientRect();
+      return rect.top + window.scrollY + rect.height;
+    }
+    return 0;
   }
 
   // Get the source line at the top of the viewport
@@ -382,10 +396,8 @@ ${body}
       if (ignoreTimer) clearTimeout(ignoreTimer);
       ignoreTimer = setTimeout(function() { ignoreScroll = false; }, 200);
 
-      var el = findElementForLine(msg.line);
-      if (el) {
-        el.scrollIntoView({ block: 'start' });
-      }
+      var pos = getScrollPositionForLine(msg.line);
+      window.scrollTo(0, pos);
     }
   });
 
@@ -397,7 +409,7 @@ ${body}
     scrollTimer = setTimeout(function() {
       var line = getLineAtViewportTop();
       vscodeApi.postMessage({ type: 'scrollEditorToLine', line: line });
-    }, 50);
+    }, 30);
   });
 })();
 </script>
