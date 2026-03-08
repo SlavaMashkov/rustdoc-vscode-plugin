@@ -1,4 +1,8 @@
+import hljs from "highlight.js/lib/core";
+import rust from "highlight.js/lib/languages/rust";
 import { DocBlock, FileSegment } from "./docParser";
+
+hljs.registerLanguage("rust", rust);
 
 /**
  * Render the entire file as interleaved code blocks and rendered doc HTML.
@@ -10,10 +14,12 @@ export function renderFullFileToHtml(segments: FileSegment[]): string {
   return segments
     .map((seg) => {
       if (seg.kind === "code") {
-        const lineSpans = seg.lines
+        const highlighted = highlightRust(seg.lines.join("\n"));
+        const hLines = highlighted.split("\n");
+        const lineSpans = hLines
           .map(
             (line, i) =>
-              `<span data-line="${seg.startLine + i}" data-line-display="${seg.startLine + i + 1}">${escapeHtml(line) || " "}</span>`,
+              `<span data-line="${seg.startLine + i}" data-line-display="${seg.startLine + i + 1}">${line || " "}</span>`,
           )
           .join("");
         return `<pre class="code-segment" data-line-start="${seg.startLine}" data-line-end="${seg.endLine}">${lineSpans}</pre>`;
@@ -79,6 +85,14 @@ function normalizeLabel(label: string): string {
   return label.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function highlightRust(code: string): string {
+  try {
+    return hljs.highlight(code, { language: "rust" }).value;
+  } catch {
+    return escapeHtml(code);
+  }
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -117,9 +131,11 @@ function markdownToHtml(md: string, refs: RefMap): string {
         output.push("</ul>");
         inList = false;
       }
+      const isRust = !lang || lang === "rust" || lang === "rs" || lang === "no_run" || lang === "should_panic" || lang === "compile_fail" || lang === "ignore";
+      const codeHtml = isRust ? highlightRust(codeLines.join("\n")) : escapeHtml(codeLines.join("\n"));
       const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : "";
       output.push(
-        `<pre><code${langClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`,
+        `<pre><code${langClass}>${codeHtml}</code></pre>`,
       );
       continue;
     }

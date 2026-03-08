@@ -313,6 +313,38 @@ export class DocPreviewPanel {
     font-style: italic;
     padding: 16px 24px;
   }
+
+  /* Syntax highlighting — dark theme (default) */
+  .hljs-keyword,
+  .hljs-built_in { color: #569cd6; }
+  .hljs-type,
+  .hljs-title.class_ { color: #4ec9b0; }
+  .hljs-title.function_ { color: #dcdcaa; }
+  .hljs-string,
+  .hljs-char { color: #ce9178; }
+  .hljs-number { color: #b5cea8; }
+  .hljs-comment { color: #6a9955; font-style: italic; }
+  .hljs-literal { color: #569cd6; }
+  .hljs-meta { color: #c586c0; }
+  .hljs-attr,
+  .hljs-variable { color: #9cdcfe; }
+  .hljs-operator,
+  .hljs-punctuation { color: var(--vscode-editor-foreground, #d4d4d4); }
+
+  /* Syntax highlighting — light theme overrides */
+  .vscode-light .hljs-keyword,
+  .vscode-light .hljs-built_in { color: #0000ff; }
+  .vscode-light .hljs-type,
+  .vscode-light .hljs-title.class_ { color: #267f99; }
+  .vscode-light .hljs-title.function_ { color: #795e26; }
+  .vscode-light .hljs-string,
+  .vscode-light .hljs-char { color: #a31515; }
+  .vscode-light .hljs-number { color: #098658; }
+  .vscode-light .hljs-comment { color: #008000; font-style: italic; }
+  .vscode-light .hljs-literal { color: #0000ff; }
+  .vscode-light .hljs-meta { color: #af00db; }
+  .vscode-light .hljs-attr,
+  .vscode-light .hljs-variable { color: #001080; }
 </style>
 </head>
 <body>

@@ -2,7 +2,7 @@
   "name": "rustdoc-viewer",
   "displayName": "Rust Doc Viewer",
   "description": "Preview Rust doc comments as formatted documentation, side by side with code",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -33,13 +33,18 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "npm run compile -- --watch",
+    "typecheck": "tsc -p ./ --noEmit",
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.27.3",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1"
   }
 }
