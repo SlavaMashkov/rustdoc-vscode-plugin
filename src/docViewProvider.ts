@@ -227,22 +227,6 @@ export class DocPreviewPanel {
     color: var(--vscode-foreground);
   }
 
-  .signature {
-    background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.1));
-    border-left: 3px solid var(--vscode-textLink-foreground, #4080d0);
-    padding: 6px 10px;
-    margin-bottom: 12px;
-    border-radius: 2px;
-  }
-
-  .signature code {
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: var(--vscode-editor-font-size, 13px);
-    background: none;
-    padding: 0;
-    color: var(--vscode-symbolIcon-functionForeground, var(--vscode-foreground));
-  }
-
   h3 {
     font-size: 1.1em;
     margin: 16px 0 6px 0;

@@ -5,16 +5,12 @@ export interface DocBlock {
   endLine: number;
   /** Raw doc content lines (without leading `/// ` or `//! `) */
   lines: string[];
-  /** The signature line right after the doc block (pub fn ..., pub struct ..., etc.) */
-  signature: string | undefined;
   /** Whether this is a module-level `//!` doc comment */
   isModuleDoc: boolean;
 }
 
 const DOC_COMMENT_RE = /^(\s*)\/\/\/(.*)$/;
 const MODULE_DOC_COMMENT_RE = /^(\s*)\/\/!(.*)$/;
-const SIGNATURE_RE = /^\s*(pub\s+)?(fn|struct|enum|trait|type|const|static|mod|impl|macro)\b/;
-
 export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
   const blocks: DocBlock[] = [];
   const lineCount = document.lineCount;
@@ -43,7 +39,6 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
         startLine,
         endLine: i - 1,
         lines: docLines,
-        signature: undefined,
         isModuleDoc: true,
       });
     } else if (docMatch) {
@@ -60,28 +55,10 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
         i++;
       }
 
-      // Look for the signature line after doc block (skip blank lines and attributes)
-      let signature: string | undefined;
-      let j = i;
-      while (j < lineCount) {
-        const text = document.lineAt(j).text.trim();
-        if (text === "" || text.startsWith("#[")) {
-          j++;
-          continue;
-        }
-        if (SIGNATURE_RE.test(text)) {
-          let sig = text;
-          sig = sig.replace(/\s*\{\s*$/, "").trimEnd();
-          signature = sig;
-        }
-        break;
-      }
-
       blocks.push({
         startLine,
         endLine: i - 1,
         lines: docLines,
-        signature,
         isModuleDoc: false,
       });
     } else {

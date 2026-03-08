@@ -39,13 +39,9 @@ export function renderDocToHtml(block: DocBlock): string {
   const markdown = content.join("\n");
   const html = markdownToHtml(markdown, refs);
 
-  let headerHtml: string;
+  let headerHtml = "";
   if (block.isModuleDoc) {
     headerHtml = '<div class="module-header">Module Documentation</div>';
-  } else if (block.signature) {
-    headerHtml = `<div class="signature"><code>${escapeHtml(block.signature)}</code></div>`;
-  } else {
-    headerHtml = "";
   }
 
   return headerHtml + html;
