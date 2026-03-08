@@ -13,9 +13,9 @@ export function renderFullFileToHtml(segments: FileSegment[]): string {
         const lineSpans = seg.lines
           .map(
             (line, i) =>
-              `<span data-line="${seg.startLine + i}">${escapeHtml(line) || " "}</span>`,
+              `<span data-line="${seg.startLine + i}" data-line-display="${seg.startLine + i + 1}">${escapeHtml(line) || " "}</span>`,
           )
-          .join("\n");
+          .join("");
         return `<pre class="code-segment" data-line-start="${seg.startLine}" data-line-end="${seg.endLine}">${lineSpans}</pre>`;
       } else {
         const inner = renderDocToHtml(seg.block);

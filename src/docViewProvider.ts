@@ -183,24 +183,38 @@ export class DocPreviewPanel {
   .code-segment {
     font-family: var(--vscode-editor-font-family, monospace);
     font-size: var(--vscode-editor-font-size, 13px);
-    line-height: 1.5;
+    line-height: var(--vscode-editor-line-height, 1.5);
     margin: 0;
-    padding: 0 16px;
+    padding: 2px 16px 2px 48px;
     background: var(--vscode-editor-background);
     border: none;
     white-space: pre;
     overflow-x: auto;
+    counter-reset: line-number var(--line-start);
+    color: var(--vscode-editor-foreground, var(--vscode-foreground));
   }
 
   .code-segment span[data-line] {
     display: block;
+    position: relative;
+  }
+
+  .code-segment span[data-line]::before {
+    content: attr(data-line-display);
+    position: absolute;
+    left: -36px;
+    width: 28px;
+    text-align: right;
+    color: var(--vscode-editorLineNumber-foreground, rgba(127,127,127,0.5));
+    font-size: 0.9em;
+    user-select: none;
   }
 
   /* Doc segments */
   .doc-segment {
-    padding: 8px 20px;
+    padding: 10px 20px 10px 48px;
     border-left: 3px solid var(--vscode-textLink-foreground, #4080d0);
-    margin: 4px 0;
+    margin: 2px 0;
     background: var(--vscode-textBlockQuote-background, rgba(127,127,127,0.05));
   }
 
