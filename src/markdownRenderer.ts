@@ -2,11 +2,13 @@ import { DocBlock } from "./docParser";
 
 /**
  * Convert doc block lines to HTML.
- * Handles basic markdown: headings, code blocks, paragraphs, lists, bold, italic, links.
+ * Handles rustdoc markdown: headings, code blocks, paragraphs, lists,
+ * bold, italic, links, and reference-style links.
  */
 export function renderDocToHtml(block: DocBlock): string {
-  const markdown = block.lines.join("\n");
-  const html = markdownToHtml(markdown);
+  const { content, refs } = extractReferenceLinks(block.lines);
+  const markdown = content.join("\n");
+  const html = markdownToHtml(markdown, refs);
 
   let headerHtml: string;
   if (block.isModuleDoc) {
@@ -20,6 +22,40 @@ export function renderDocToHtml(block: DocBlock): string {
   return headerHtml + html;
 }
 
+type RefMap = Map<string, string>;
+
+const REF_DEFINITION_RE = /^\[([^\]]+)\]:\s+(.+)$/;
+
+/**
+ * Extract reference link definitions from the end of doc lines.
+ * Returns content lines (without definitions) and a map of label -> url.
+ */
+function extractReferenceLinks(lines: string[]): {
+  content: string[];
+  refs: RefMap;
+} {
+  const refs: RefMap = new Map();
+  const content: string[] = [];
+
+  for (const line of lines) {
+    const match = REF_DEFINITION_RE.exec(line.trim());
+    if (match) {
+      // Normalize label: lowercase, strip backticks
+      const label = normalizeLabel(match[1]);
+      refs.set(label, match[2].trim());
+    } else {
+      content.push(line);
+    }
+  }
+
+  return { content, refs };
+}
+
+/** Normalize a reference label for matching: lowercase, collapse whitespace */
+function normalizeLabel(label: string): string {
+  return label.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -28,7 +64,7 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function markdownToHtml(md: string): string {
+function markdownToHtml(md: string, refs: RefMap): string {
   const lines = md.split("\n");
   const output: string[] = [];
   let i = 0;
@@ -73,9 +109,8 @@ function markdownToHtml(md: string): string {
         inList = false;
       }
       const level = headingMatch[1].length;
-      // Render as h3-h6 (offset by 2 since these are subsections)
       const tag = `h${Math.min(level + 2, 6)}`;
-      output.push(`<${tag}>${inlineMarkdown(headingMatch[2])}</${tag}>`);
+      output.push(`<${tag}>${inlineMarkdown(headingMatch[2], refs)}</${tag}>`);
       i++;
       continue;
     }
@@ -87,7 +122,7 @@ function markdownToHtml(md: string): string {
         output.push("<ul>");
         inList = true;
       }
-      output.push(`<li>${inlineMarkdown(listMatch[2])}</li>`);
+      output.push(`<li>${inlineMarkdown(listMatch[2], refs)}</li>`);
       i++;
       continue;
     }
@@ -119,7 +154,7 @@ function markdownToHtml(md: string): string {
       paraLines.push(lines[i]);
       i++;
     }
-    output.push(`<p>${inlineMarkdown(paraLines.join(" "))}</p>`);
+    output.push(`<p>${inlineMarkdown(paraLines.join(" "), refs)}</p>`);
   }
 
   if (inList) {
@@ -129,19 +164,65 @@ function markdownToHtml(md: string): string {
   return output.join("\n");
 }
 
-/** Handle inline markdown: bold, italic, code, links */
-function inlineMarkdown(text: string): string {
+/** Handle inline markdown: bold, italic, code, inline/reference links */
+function inlineMarkdown(text: string, refs: RefMap): string {
   let result = escapeHtml(text);
-  // Inline code
-  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
-  // Bold
+
+  // Inline code (do first to protect code spans from further processing)
+  // We'll use a placeholder approach to protect code spans
+  const codeSpans: string[] = [];
+  result = result.replace(/`([^`]+)`/g, (_match, code) => {
+    const idx = codeSpans.length;
+    codeSpans.push(`<code>${code}</code>`);
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // Bold (before italic)
   result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   // Italic
   result = result.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  // Links [text](url)
+
+  // Inline links [text](url)
   result = result.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
     '<a href="$2">$1</a>',
   );
+
+  // Reference links [text][label]
+  result = result.replace(/\[([^\]]+)\]\[([^\]]+)\]/g, (_match, text, label) => {
+    const url = refs.get(normalizeLabel(label));
+    if (url) {
+      return `<a href="${escapeHtml(url)}">${text}</a>`;
+    }
+    return `[${text}][${label}]`;
+  });
+
+  // Shortcut reference links [`name`] or [name]
+  // Match [`code`] first (with backticks inside brackets)
+  result = result.replace(/\[`([^`]+)`\]/g, (_match, name) => {
+    const url = refs.get(normalizeLabel("`" + name + "`"));
+    if (url) {
+      return `<a href="${escapeHtml(url)}"><code>${escapeHtml(name)}</code></a>`;
+    }
+    // No ref found — just render as code
+    return `<code>${escapeHtml(name)}</code>`;
+  });
+
+  // Shortcut reference links [name] (without backticks)
+  result = result.replace(/\[([^\]]+)\]/g, (_match, name) => {
+    // Skip if it looks like it was already processed (contains HTML)
+    if (name.includes("<")) return `[${name}]`;
+    const url = refs.get(normalizeLabel(name));
+    if (url) {
+      return `<a href="${escapeHtml(url)}">${name}</a>`;
+    }
+    return `[${name}]`;
+  });
+
+  // Restore code spans
+  result = result.replace(/\x00CODE(\d+)\x00/g, (_match, idx) => {
+    return codeSpans[parseInt(idx, 10)];
+  });
+
   return result;
 }
