@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.0] - 2026-03-09
+
+### Changed
+- Refactored `docViewProvider.ts` (688 → 168 lines) by extracting:
+  - `symbolNavigation.ts` — intra-doc link navigation and LSP symbol resolution
+  - `webviewHtml.ts` + `webview.html` — webview template as a standalone HTML file with full IDE support (syntax highlighting, error checking)
+- Added ESLint with TypeScript support (flat config)
+
+### Removed
+- Dead code: `findDocBlockAtLine()` (unused since full-file rendering)
+- Redundant try/catch wrapper in `extension.ts`
+
 ## [0.4.5] - 2026-03-09
 
 ### Added
