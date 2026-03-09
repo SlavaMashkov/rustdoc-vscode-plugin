@@ -1,6 +1,6 @@
 {
   "name": "rustdoc-viewer",
-  "displayName": "Rust Doc Viewer",
+  "displayName": "Rust Doc Side Viewer",
   "description": "Preview Rust doc comments as formatted documentation in a side panel — like the built-in Markdown preview, but for Rust /// and //! doc comments",
   "version": "0.4.4",
   "publisher": "SlavaMashkov",
