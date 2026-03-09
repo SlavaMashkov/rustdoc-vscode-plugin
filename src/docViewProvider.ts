@@ -1,3 +1,4 @@
+import * as path from "path";
 import * as vscode from "vscode";
 import { parseFileSegments, FileSegment } from "./docParser";
 import { renderFullFileToHtml } from "./markdownRenderer";
@@ -82,26 +83,29 @@ export class DocPreviewPanel {
       return;
     }
 
-    const docUri = editor.document.uri.toString();
-    const docVersion = editor.document.version;
+    try {
+      const docUri = editor.document.uri.toString();
+      const docVersion = editor.document.version;
 
-    if (docUri !== this.lastDocUri || docVersion !== this.lastDocVersion) {
-      this.cachedSegments = parseFileSegments(editor.document);
+      if (docUri !== this.lastDocUri || docVersion !== this.lastDocVersion) {
+        this.cachedSegments = parseFileSegments(editor.document);
 
-      const fileName =
-        editor.document.fileName.split("/").pop() ?? "Rust Doc";
-      this.panel.title = `Preview: ${fileName}`;
+        const fileName = path.basename(editor.document.fileName);
+        this.panel.title = `Preview: ${fileName}`;
 
-      const bodyHtml = renderFullFileToHtml(this.cachedSegments);
-      this.panel.webview.html = this.wrapHtml(bodyHtml);
-      this.lastDocUri = docUri;
-      this.lastDocVersion = docVersion;
+        const bodyHtml = renderFullFileToHtml(this.cachedSegments);
+        this.panel.webview.html = this.wrapHtml(bodyHtml);
+        this.lastDocUri = docUri;
+        this.lastDocVersion = docVersion;
 
-      // Restore scroll position after re-render
-      const topLine = editor.visibleRanges[0]?.start.line ?? 0;
-      setTimeout(() => {
-        this.sendScrollToLine(topLine);
-      }, 50);
+        // Restore scroll position after re-render
+        const topLine = editor.visibleRanges[0]?.start.line ?? 0;
+        setTimeout(() => {
+          this.sendScrollToLine(topLine);
+        }, 50);
+      }
+    } catch (err) {
+      console.error("[rustdoc-viewer] Failed to render preview:", err);
     }
   }
 
@@ -140,7 +144,7 @@ export class DocPreviewPanel {
     this.ignoreTimer = setTimeout(() => {
       this.ignoreNextWebviewScroll = false;
     }, 200);
-    this.panel.webview.postMessage({ type: "scrollToLine", line });
+    void this.panel.webview.postMessage({ type: "scrollToLine", line }).then(undefined, () => {});
   }
 
   private handleWebviewScroll(line: number): void {
@@ -205,7 +209,9 @@ export class DocPreviewPanel {
 
       vscode.window.showInformationMessage(`Symbol not found: ${path}`);
     } catch (err) {
-      vscode.window.showWarningMessage(`Could not navigate to ${path}: ${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[rustdoc-viewer] navigateToSymbol failed:", err);
+      vscode.window.showWarningMessage(`Could not navigate to ${path}: ${message}`);
     }
   }
 
@@ -252,11 +258,17 @@ export class DocPreviewPanel {
     uri: vscode.Uri,
     position: vscode.Position,
   ): Promise<{ uri: vscode.Uri; range: vscode.Range } | undefined> {
-    const results = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
-      "vscode.executeDefinitionProvider",
-      uri,
-      position,
-    );
+    let results;
+    try {
+      results = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
+        "vscode.executeDefinitionProvider",
+        uri,
+        position,
+      );
+    } catch (err) {
+      console.warn("[rustdoc-viewer] LSP definition provider failed:", err);
+      return undefined;
+    }
     if (!results || results.length === 0) return undefined;
 
     const def = results[0];
@@ -275,29 +287,25 @@ export class DocPreviewPanel {
     document: vscode.TextDocument,
     name: string,
   ): vscode.Position | undefined {
+    const escaped = escapeRegex(name);
     const patterns = [
-      new RegExp(`\\b${escapeRegex(name)}\\b`),
-      new RegExp(`\\b${escapeRegex(name)}!`),
+      new RegExp(`\\b${escaped}\\b`),
+      new RegExp(`\\b${escaped}!`),
     ];
-    // Pass 1: search in non-comment code
-    for (const wordRe of patterns) {
-      for (let i = 0; i < document.lineCount; i++) {
-        const line = document.lineAt(i).text;
-        const trimmed = line.trimStart();
-        if (trimmed.startsWith("///") || trimmed.startsWith("//!") || trimmed.startsWith("//")) continue;
-        const match = wordRe.exec(line);
-        if (match) {
-          return new vscode.Position(i, match.index);
-        }
-      }
-    }
-    // Pass 2: search all lines including doc comments (for identifiers only used in examples)
-    for (const wordRe of patterns) {
-      for (let i = 0; i < document.lineCount; i++) {
-        const line = document.lineAt(i).text;
-        const match = wordRe.exec(line);
-        if (match) {
-          return new vscode.Position(i, match.index);
+    const skipComments = [true, false];
+
+    for (const skipComment of skipComments) {
+      for (const wordRe of patterns) {
+        for (let i = 0; i < document.lineCount; i++) {
+          const line = document.lineAt(i).text;
+          if (skipComment) {
+            const trimmed = line.trimStart();
+            if (trimmed.startsWith("//")) continue;
+          }
+          const match = wordRe.exec(line);
+          if (match) {
+            return new vscode.Position(i, match.index);
+          }
         }
       }
     }

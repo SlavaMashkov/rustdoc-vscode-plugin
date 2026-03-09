@@ -11,6 +11,25 @@ export interface DocBlock {
 
 const DOC_COMMENT_RE = /^(\s*)\/\/\/(.*)$/;
 const MODULE_DOC_COMMENT_RE = /^(\s*)\/\/!(.*)$/;
+
+/** Consume consecutive lines matching `pattern` starting at line `start`, returning doc content lines and end index. */
+function consumeDocBlock(
+  document: vscode.TextDocument,
+  start: number,
+  pattern: RegExp,
+): { docLines: string[]; nextLine: number } {
+  const docLines: string[] = [];
+  let i = start;
+  while (i < document.lineCount) {
+    const m = pattern.exec(document.lineAt(i).text);
+    if (!m) break;
+    const content = m[2].startsWith(" ") ? m[2].slice(1) : m[2];
+    docLines.push(content);
+    i++;
+  }
+  return { docLines, nextLine: i };
+}
+
 export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
   const blocks: DocBlock[] = [];
   const lineCount = document.lineCount;
@@ -18,49 +37,19 @@ export function parseDocBlocks(document: vscode.TextDocument): DocBlock[] {
 
   while (i < lineCount) {
     const lineText = document.lineAt(i).text;
-    const moduleMatch = MODULE_DOC_COMMENT_RE.exec(lineText);
-    const docMatch = DOC_COMMENT_RE.exec(lineText);
+    const isModuleDoc = MODULE_DOC_COMMENT_RE.test(lineText);
+    const isItemDoc = !isModuleDoc && DOC_COMMENT_RE.test(lineText);
 
-    if (moduleMatch) {
-      // //! module-level doc comment block
-      const startLine = i;
-      const docLines: string[] = [];
-
-      while (i < lineCount) {
-        const text = document.lineAt(i).text;
-        const m = MODULE_DOC_COMMENT_RE.exec(text);
-        if (!m) break;
-        const content = m[2].startsWith(" ") ? m[2].slice(1) : m[2];
-        docLines.push(content);
-        i++;
-      }
-
+    if (isModuleDoc || isItemDoc) {
+      const pattern = isModuleDoc ? MODULE_DOC_COMMENT_RE : DOC_COMMENT_RE;
+      const { docLines, nextLine } = consumeDocBlock(document, i, pattern);
       blocks.push({
-        startLine,
-        endLine: i - 1,
+        startLine: i,
+        endLine: nextLine - 1,
         lines: docLines,
-        isModuleDoc: true,
+        isModuleDoc,
       });
-    } else if (docMatch) {
-      // /// item-level doc comment block
-      const startLine = i;
-      const docLines: string[] = [];
-
-      while (i < lineCount) {
-        const text = document.lineAt(i).text;
-        const m = DOC_COMMENT_RE.exec(text);
-        if (!m) break;
-        const content = m[2].startsWith(" ") ? m[2].slice(1) : m[2];
-        docLines.push(content);
-        i++;
-      }
-
-      blocks.push({
-        startLine,
-        endLine: i - 1,
-        lines: docLines,
-        isModuleDoc: false,
-      });
+      i = nextLine;
     } else {
       i++;
     }
@@ -87,7 +76,8 @@ export function findDocBlockAtLine(
   }
 
   // Check if cursor is on the signature line (right after a doc block)
-  for (const block of blocks) {
+  for (let idx = blocks.length - 1; idx >= 0; idx--) {
+    const block = blocks[idx];
     if (line > block.endLine && line <= block.endLine + 5) {
       return block;
     }
@@ -108,6 +98,19 @@ export type FileSegment =
   | { kind: "code"; startLine: number; endLine: number; lines: string[] }
   | { kind: "doc"; startLine: number; endLine: number; block: DocBlock };
 
+/** Collect text for lines [from, to] from the document. */
+function getLineTexts(
+  document: vscode.TextDocument,
+  from: number,
+  to: number,
+): string[] {
+  const lines: string[] = [];
+  for (let i = from; i <= to; i++) {
+    lines.push(document.lineAt(i).text);
+  }
+  return lines;
+}
+
 /**
  * Parse the entire file into an ordered list of code and doc segments.
  * Code segments fill the gaps between doc blocks.
@@ -120,45 +123,28 @@ export function parseFileSegments(
   const lineCount = document.lineCount;
   let currentLine = 0;
 
-  for (const block of blocks) {
-    // Code gap before this doc block
-    if (currentLine < block.startLine) {
-      const codeLines: string[] = [];
-      for (let i = currentLine; i < block.startLine; i++) {
-        codeLines.push(document.lineAt(i).text);
-      }
-      segments.push({
-        kind: "code",
-        startLine: currentLine,
-        endLine: block.startLine - 1,
-        lines: codeLines,
-      });
-    }
+  function addCodeSegment(startLine: number, endLine: number): void {
+    if (startLine > endLine) return;
+    segments.push({
+      kind: "code",
+      startLine,
+      endLine,
+      lines: getLineTexts(document, startLine, endLine),
+    });
+  }
 
-    // Doc segment
+  for (const block of blocks) {
+    addCodeSegment(currentLine, block.startLine - 1);
     segments.push({
       kind: "doc",
       startLine: block.startLine,
       endLine: block.endLine,
       block,
     });
-
     currentLine = block.endLine + 1;
   }
 
-  // Trailing code after last doc block
-  if (currentLine < lineCount) {
-    const codeLines: string[] = [];
-    for (let i = currentLine; i < lineCount; i++) {
-      codeLines.push(document.lineAt(i).text);
-    }
-    segments.push({
-      kind: "code",
-      startLine: currentLine,
-      endLine: lineCount - 1,
-      lines: codeLines,
-    });
-  }
+  addCodeSegment(currentLine, lineCount - 1);
 
   return segments;
 }

@@ -65,7 +65,7 @@ function extractReferenceLinks(lines: string[]): {
   for (const line of lines) {
     const match = REF_DEFINITION_RE.exec(line.trim());
     if (match) {
-      // Normalize label: lowercase, strip backticks
+      // Normalize label: lowercase, collapse whitespace
       const label = normalizeLabel(match[1]);
       refs.set(label, match[2].trim());
     } else {
@@ -128,7 +128,8 @@ function renderLink(href: string, innerHtml: string): string {
 function highlightRust(code: string): string {
   try {
     return hljs.highlight(code, { language: "rust" }).value;
-  } catch {
+  } catch (err) {
+    console.warn("[rustdoc-viewer] Syntax highlighting failed:", err);
     return escapeHtml(code);
   }
 }
@@ -141,11 +142,21 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+const RUST_CODE_BLOCK_LANGS = new Set([
+  "", "rust", "rs", "no_run", "should_panic", "compile_fail", "ignore",
+]);
+
 function markdownToHtml(md: string, refs: RefMap): string {
   const lines = md.split("\n");
   const output: string[] = [];
   let i = 0;
   let inList = false;
+
+  function closeList(): void {
+    if (!inList) return;
+    output.push("</ul>");
+    inList = false;
+  }
 
   while (i < lines.length) {
     const line = lines[i];
@@ -157,8 +168,7 @@ function markdownToHtml(md: string, refs: RefMap): string {
       const codeLines: string[] = [];
       while (i < lines.length && !lines[i].trim().startsWith("```")) {
         const codeLine = lines[i];
-        // Rustdoc hidden lines: lines starting with `# ` are hidden from output
-        // A bare `#` on its own line is also hidden
+        // Rustdoc hidden lines: `# ` prefix or bare `#` are hidden from output
         if (codeLine === "#" || codeLine.startsWith("# ")) {
           i++;
           continue;
@@ -167,26 +177,18 @@ function markdownToHtml(md: string, refs: RefMap): string {
         i++;
       }
       i++; // skip closing ```
-      if (inList) {
-        output.push("</ul>");
-        inList = false;
-      }
-      const isRust = !lang || lang === "rust" || lang === "rs" || lang === "no_run" || lang === "should_panic" || lang === "compile_fail" || lang === "ignore";
-      const codeHtml = isRust ? highlightRust(codeLines.join("\n")) : escapeHtml(codeLines.join("\n"));
+      closeList();
+      const codeText = codeLines.join("\n");
+      const codeHtml = RUST_CODE_BLOCK_LANGS.has(lang) ? highlightRust(codeText) : escapeHtml(codeText);
       const langClass = lang ? ` class="language-${escapeHtml(lang)}"` : "";
-      output.push(
-        `<pre><code${langClass}>${codeHtml}</code></pre>`,
-      );
+      output.push(`<pre><code${langClass}>${codeHtml}</code></pre>`);
       continue;
     }
 
     // Heading
     const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
-      if (inList) {
-        output.push("</ul>");
-        inList = false;
-      }
+      closeList();
       const level = headingMatch[1].length;
       const tag = `h${Math.min(level + 2, 6)}`;
       output.push(`<${tag}>${inlineMarkdown(headingMatch[2], refs)}</${tag}>`);
@@ -208,19 +210,13 @@ function markdownToHtml(md: string, refs: RefMap): string {
 
     // Blank line
     if (line.trim() === "") {
-      if (inList) {
-        output.push("</ul>");
-        inList = false;
-      }
+      closeList();
       i++;
       continue;
     }
 
     // Regular paragraph
-    if (inList) {
-      output.push("</ul>");
-      inList = false;
-    }
+    closeList();
     const paraLines: string[] = [line];
     i++;
     while (
@@ -236,18 +232,29 @@ function markdownToHtml(md: string, refs: RefMap): string {
     output.push(`<p>${inlineMarkdown(paraLines.join(" "), refs)}</p>`);
   }
 
-  if (inList) {
-    output.push("</ul>");
-  }
-
+  closeList();
   return output.join("\n");
+}
+
+/** Render code text as inline `<code>`, optionally wrapped in a link. */
+function renderCodeRef(code: string, url: string | undefined): string {
+  const codeHtml = `<code>${escapeHtml(code)}</code>`;
+  if (url) return renderLink(url, codeHtml);
+  return codeHtml;
+}
+
+/** Render text as a reference link, falling back to an intra-doc link. */
+function renderTextRef(text: string, label: string, url: string | undefined): string {
+  const inner = formatLinkText(text);
+  if (url) return renderLink(url, inner);
+  return `<a class="intra-doc" data-path="${escapeHtml(label)}">${inner}</a>`;
 }
 
 /**
  * Handle inline markdown: bold, italic, code, inline/reference links.
  *
- * Uses a tokenization approach: first split text into "html" tokens (already safe)
- * and "raw" tokens (need escaping + further processing). This avoids placeholder hacks.
+ * Uses a single-pass regex to match link forms and inline code, processing
+ * unmatched text segments through HTML escaping and bold/italic formatting.
  */
 function inlineMarkdown(text: string, refs: RefMap): string {
   // Combined regex that matches all link forms and inline code in one pass.
@@ -268,27 +275,16 @@ function inlineMarkdown(text: string, refs: RefMap): string {
   let match: RegExpExecArray | null;
 
   while ((match = COMBINED_RE.exec(text)) !== null) {
-    // Add raw text before this match
     if (match.index > lastIndex) {
       parts.push(processRawSegment(text.slice(lastIndex, match.index)));
     }
 
     if (match[1] !== undefined && match[2] !== undefined) {
       // [`code`][label]
-      const url = refs.get(normalizeLabel(match[2]));
-      if (url) {
-        parts.push(renderLink(url, `<code>${escapeHtml(match[1])}</code>`));
-      } else {
-        parts.push(`<code>${escapeHtml(match[1])}</code>`);
-      }
+      parts.push(renderCodeRef(match[1], refs.get(normalizeLabel(match[2]))));
     } else if (match[3] !== undefined && match[4] !== undefined) {
       // [text][label]
-      const url = refs.get(normalizeLabel(match[4]));
-      if (url) {
-        parts.push(renderLink(url, formatLinkText(match[3])));
-      } else {
-        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[4])}">${formatLinkText(match[3])}</a>`);
-      }
+      parts.push(renderTextRef(match[3], match[4], refs.get(normalizeLabel(match[4]))));
     } else if (match[5] !== undefined && match[6] !== undefined) {
       // [`code`](url)
       parts.push(renderLink(match[6], `<code>${escapeHtml(match[5])}</code>`));
@@ -296,21 +292,14 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       // [text](url)
       parts.push(renderLink(match[8], formatLinkText(match[7])));
     } else if (match[9] !== undefined) {
-      // [`code`] shortcut
+      // [`code`] shortcut — ref label includes backticks
       const url = refs.get(normalizeLabel("`" + match[9] + "`"));
-      if (url) {
-        parts.push(renderLink(url, `<code>${escapeHtml(match[9])}</code>`));
-      } else {
-        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[9])}"><code>${escapeHtml(match[9])}</code></a>`);
-      }
+      parts.push(url
+        ? renderLink(url, `<code>${escapeHtml(match[9])}</code>`)
+        : `<a class="intra-doc" data-path="${escapeHtml(match[9])}"><code>${escapeHtml(match[9])}</code></a>`);
     } else if (match[10] !== undefined) {
       // [text] shortcut
-      const url = refs.get(normalizeLabel(match[10]));
-      if (url) {
-        parts.push(renderLink(url, formatLinkText(match[10])));
-      } else {
-        parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[10])}">${formatLinkText(match[10])}</a>`);
-      }
+      parts.push(renderTextRef(match[10], match[10], refs.get(normalizeLabel(match[10]))));
     } else if (match[11] !== undefined) {
       // `code`
       parts.push(`<code>${escapeHtml(match[11])}</code>`);
@@ -319,7 +308,6 @@ function inlineMarkdown(text: string, refs: RefMap): string {
     lastIndex = match.index + match[0].length;
   }
 
-  // Add remaining raw text
   if (lastIndex < text.length) {
     parts.push(processRawSegment(text.slice(lastIndex)));
   }
