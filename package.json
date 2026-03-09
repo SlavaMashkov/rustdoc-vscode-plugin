@@ -2,7 +2,7 @@
   "name": "rustdoc-viewer",
   "displayName": "Rust Doc Viewer",
   "description": "Preview Rust doc comments as formatted documentation in a side panel — like the built-in Markdown preview, but for Rust /// and //! doc comments",
-  "version": "0.4.0",
+  "version": "0.4.4",
   "publisher": "SlavaMashkov",
   "author": {
     "name": "SlavaMashkov",
@@ -31,6 +31,7 @@
     "rustdoc",
     "doc comments"
   ],
+  "icon": "icon.png",
   "galleryBanner": {
     "color": "#1e1e1e",
     "theme": "dark"
@@ -44,7 +45,7 @@
       {
         "command": "rustdocViewer.openPreview",
         "title": "Rust Doc: Open Preview to the Side",
-        "icon": "$(book)"
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
