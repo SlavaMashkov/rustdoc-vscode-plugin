@@ -31,7 +31,7 @@ export class DocPreviewPanel {
 
     this.panel = vscode.window.createWebviewPanel(
       "rustdocPreview",
-      "Rust Doc Preview",
+      "Rust Doc Side Viewer",
       {
         viewColumn: vscode.ViewColumn.Beside,
         preserveFocus: true,

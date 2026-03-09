@@ -1,6 +1,10 @@
-# Rust Doc Viewer
+# Rust Doc Side Viewer
 
 Preview Rust `///` and `//!` doc comments as formatted documentation in a side panel — like the built-in Markdown preview, but for Rust doc comments.
+
+![Module documentation preview](screenshots/1.png)
+
+![Struct and impl documentation preview](screenshots/2.png)
 
 ## Features
 
@@ -16,7 +20,7 @@ Preview Rust `///` and `//!` doc comments as formatted documentation in a side p
 ## Usage
 
 1. Open a Rust file
-2. Click the book icon in the editor title bar, or run **Rust Doc: Open Preview to the Side** from the command palette (`Ctrl+Shift+P`)
+2. Click the preview icon in the editor title bar, or run **Rust Doc: Open Preview to the Side** from the command palette (`Ctrl+Shift+P`)
 3. The preview opens in a side panel and updates as you edit
 
 ## Requirements
@@ -28,7 +32,7 @@ Preview Rust `///` and `//!` doc comments as formatted documentation in a side p
 
 ### From VS Code Marketplace
 
-Search for **Rust Doc Viewer** in the Extensions view (`Ctrl+Shift+X`).
+Search for **Rust Doc Side Viewer** in the Extensions view (`Ctrl+Shift+X`).
 
 ### From VSIX
 

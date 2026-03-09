@@ -1,13 +1,19 @@
 # Changelog
 
+## [0.4.5] - 2026-03-09
+
+### Added
+- Extension icon (crab + book)
+- Screenshots in README
+
+### Changed
+- Renamed to "Rust Doc Side Viewer"
+
 ## [0.4.0] - 2026-03-09
 
 ### Added
 - Prepare for publication: README, LICENSE (MIT), CHANGELOG
 - package.json marketplace fields (publisher, keywords, repository, etc.)
-
-### Changed
-- Editor title bar icon: `$(open-preview)` → `$(book)`
 
 ## [0.3.4] - 2026-03-09
 
