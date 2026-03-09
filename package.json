@@ -1,14 +1,40 @@
 {
   "name": "rustdoc-viewer",
   "displayName": "Rust Doc Viewer",
-  "description": "Preview Rust doc comments as formatted documentation, side by side with code",
-  "version": "0.3.4",
+  "description": "Preview Rust doc comments as formatted documentation in a side panel — like the built-in Markdown preview, but for Rust /// and //! doc comments",
+  "version": "0.4.0",
+  "publisher": "SlavaMashkov",
+  "author": {
+    "name": "SlavaMashkov",
+    "url": "https://github.com/SlavaMashkov"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SlavaMashkov/rustdoc-vscode-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/SlavaMashkov/rustdoc-vscode-plugin/issues"
+  },
+  "homepage": "https://github.com/SlavaMashkov/rustdoc-vscode-plugin#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Other"
   ],
+  "keywords": [
+    "rust",
+    "documentation",
+    "preview",
+    "rustdoc",
+    "doc comments"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onLanguage:rust"
   ],
@@ -18,7 +44,7 @@
       {
         "command": "rustdocViewer.openPreview",
         "title": "Rust Doc: Open Preview to the Side",
-        "icon": "$(open-preview)"
+        "icon": "$(book)"
       }
     ],
     "menus": {
