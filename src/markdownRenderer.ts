@@ -81,6 +81,50 @@ function normalizeLabel(label: string): string {
   return label.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+const RUSTDOC_URL_RE = /^((?:[a-zA-Z_][a-zA-Z0-9_]*[/])*)(?:struct|enum|trait|fn|type|const|static|mod|macro)[.]([^.]+)[.]html(?:#(?:(?:method|variant|tymethod|associatedtype|associatedconstant|impl)[.](.+)|[^#]*))?$/;
+
+/**
+ * Parse a rustdoc relative URL into a symbol path, or return null if not a rustdoc URL.
+ * e.g. "fn.init.html" → "init"
+ *      "struct.Builder.html#method.init" → "Builder::init"
+ *      "fmt/struct.Formatter.html" → "fmt::Formatter"
+ *      "struct.Env.html#default-environment-variables" → "Env" (section anchor ignored)
+ */
+function parseRustdocUrl(href: string): string | null {
+  if (href.startsWith("http://") || href.startsWith("https://")) return null;
+
+  // Anchor-only: #method.filter, #variant.Name, #tymethod.foo
+  if (href.startsWith("#")) {
+    const anchorMatch = /^#(?:method|variant|tymethod|associatedtype|associatedconstant|impl)[.](.+)$/.exec(href);
+    if (anchorMatch) return anchorMatch[1];
+    return null;
+  }
+
+  // Rust path syntax: std::io::Write, std::writeln
+  if (/^[a-zA-Z_][a-zA-Z0-9_]*(?:::[a-zA-Z_][a-zA-Z0-9_]*)+$/.test(href)) {
+    return href;
+  }
+
+  const m = RUSTDOC_URL_RE.exec(href);
+  if (!m) return null;
+  const modulePath = m[1] ? m[1].replace(/\//g, "::").replace(/::$/, "") : "";
+  const typeName = m[2];
+  const member = m[3];
+  let result = typeName;
+  if (member) result = typeName + "::" + member;
+  if (modulePath) result = modulePath + "::" + result;
+  return result;
+}
+
+/** Render a link — if href is a rustdoc relative URL, render as intra-doc; otherwise normal link */
+function renderLink(href: string, innerHtml: string): string {
+  const symbolPath = parseRustdocUrl(href);
+  if (symbolPath) {
+    return `<a class="intra-doc" data-path="${escapeHtml(symbolPath)}">${innerHtml}</a>`;
+  }
+  return `<a href="${escapeHtml(href)}">${innerHtml}</a>`;
+}
+
 function highlightRust(code: string): string {
   try {
     return hljs.highlight(code, { language: "rust" }).value;
@@ -233,7 +277,7 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       // [`code`][label]
       const url = refs.get(normalizeLabel(match[2]));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}"><code>${escapeHtml(match[1])}</code></a>`);
+        parts.push(renderLink(url, `<code>${escapeHtml(match[1])}</code>`));
       } else {
         parts.push(`<code>${escapeHtml(match[1])}</code>`);
       }
@@ -241,32 +285,30 @@ function inlineMarkdown(text: string, refs: RefMap): string {
       // [text][label]
       const url = refs.get(normalizeLabel(match[4]));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[3])}</a>`);
+        parts.push(renderLink(url, formatLinkText(match[3])));
       } else {
         parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[4])}">${formatLinkText(match[3])}</a>`);
       }
     } else if (match[5] !== undefined && match[6] !== undefined) {
       // [`code`](url)
-      parts.push(`<a href="${escapeHtml(match[6])}"><code>${escapeHtml(match[5])}</code></a>`);
+      parts.push(renderLink(match[6], `<code>${escapeHtml(match[5])}</code>`));
     } else if (match[7] !== undefined && match[8] !== undefined) {
       // [text](url)
-      parts.push(`<a href="${escapeHtml(match[8])}">${formatLinkText(match[7])}</a>`);
+      parts.push(renderLink(match[8], formatLinkText(match[7])));
     } else if (match[9] !== undefined) {
       // [`code`] shortcut
       const url = refs.get(normalizeLabel("`" + match[9] + "`"));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}"><code>${escapeHtml(match[9])}</code></a>`);
+        parts.push(renderLink(url, `<code>${escapeHtml(match[9])}</code>`));
       } else {
-        // Intra-doc link: clickable symbol navigation
         parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[9])}"><code>${escapeHtml(match[9])}</code></a>`);
       }
     } else if (match[10] !== undefined) {
       // [text] shortcut
       const url = refs.get(normalizeLabel(match[10]));
       if (url) {
-        parts.push(`<a href="${escapeHtml(url)}">${formatLinkText(match[10])}</a>`);
+        parts.push(renderLink(url, formatLinkText(match[10])));
       } else {
-        // Intra-doc link: clickable symbol navigation
         parts.push(`<a class="intra-doc" data-path="${escapeHtml(match[10])}">${formatLinkText(match[10])}</a>`);
       }
     } else if (match[11] !== undefined) {

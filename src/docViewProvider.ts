@@ -2,6 +2,10 @@ import * as vscode from "vscode";
 import { parseFileSegments, FileSegment } from "./docParser";
 import { renderFullFileToHtml } from "./markdownRenderer";
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class DocPreviewPanel {
   private panel: vscode.WebviewPanel | undefined;
   private disposables: vscode.Disposable[] = [];
@@ -150,37 +154,217 @@ export class DocPreviewPanel {
   }
 
   private async navigateToSymbol(path: string): Promise<void> {
-    // Extract the last component for searching (e.g. "Builder::write_style" → "write_style")
-    const parts = path.split("::");
-    const searchName = parts[parts.length - 1];
+    try {
+      let parts = path.split("::");
 
-    const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
-      "vscode.executeWorkspaceSymbolProvider",
-      searchName,
-    );
+      // Strip crate:: prefix (refers to current crate)
+      if (parts[0] === "crate") parts = parts.slice(1);
 
-    if (!symbols || symbols.length === 0) return;
+      const searchName = parts[parts.length - 1];
+      const container = parts.length > 1 ? parts[parts.length - 2] : undefined;
+      const editor = this.getRustEditor();
 
-    // Try to find exact match: if path has multiple parts, match the container
-    let best: vscode.SymbolInformation | undefined;
+      // 1. Search in current document (strict: with container)
+      if (editor) {
+        const found = await this.findInDocument(editor.document, searchName, container);
+        if (found) {
+          await vscode.window.showTextDocument(editor.document, {
+            selection: found,
+            viewColumn: vscode.ViewColumn.One,
+          });
+          return;
+        }
+      }
+
+      // 2. Use LSP go-to-definition: find the symbol name in code and Ctrl+click it
+      if (editor) {
+        const target = await this.resolveViaDefinitionProvider(editor.document, parts);
+        if (target) {
+          const doc = await vscode.workspace.openTextDocument(target.uri);
+          const isSameFile = doc.uri.toString() === editor.document.uri.toString();
+          await vscode.window.showTextDocument(doc, {
+            selection: target.range,
+            viewColumn: vscode.ViewColumn.One,
+            preview: !isSameFile,
+          });
+          return;
+        }
+      }
+
+      // 3. Loose fallback: search current document without container
+      if (editor && container) {
+        const loose = await this.findInDocument(editor.document, searchName, undefined);
+        if (loose) {
+          await vscode.window.showTextDocument(editor.document, {
+            selection: loose,
+            viewColumn: vscode.ViewColumn.One,
+          });
+          return;
+        }
+      }
+
+      vscode.window.showInformationMessage(`Symbol not found: ${path}`);
+    } catch (err) {
+      vscode.window.showWarningMessage(`Could not navigate to ${path}: ${err}`);
+    }
+  }
+
+  /**
+   * Find the symbol in code (not doc comments) and use LSP definition provider,
+   * like Ctrl+click. For "Builder::format", finds "Builder" in code, goes to
+   * its definition, then finds "format" there.
+   */
+  private async resolveViaDefinitionProvider(
+    document: vscode.TextDocument,
+    parts: string[],
+  ): Promise<{ uri: vscode.Uri; range: vscode.Range } | undefined> {
+    // For multi-part paths (Builder::format), resolve the container first
     if (parts.length > 1) {
-      const container = parts[parts.length - 2];
-      best = symbols.find(
-        (s) => s.name === searchName && s.containerName?.includes(container),
-      );
-    }
-    if (!best) {
-      best = symbols.find((s) => s.name === searchName);
-    }
-    if (!best) {
-      best = symbols[0];
+      const containerName = parts[parts.length - 2];
+      const memberName = parts[parts.length - 1];
+
+      const containerPos = this.findIdentifierInCode(document, containerName);
+      if (containerPos) {
+        const loc = await this.getDefinitionLocation(document.uri, containerPos);
+        if (loc) {
+          const defDoc = await vscode.workspace.openTextDocument(loc.uri);
+          const found = await this.findInDocument(defDoc, memberName, containerName);
+          if (found) return { uri: loc.uri, range: found };
+          const loose = await this.findInDocument(defDoc, memberName, undefined);
+          if (loose) return { uri: loc.uri, range: loose };
+        }
+      }
     }
 
-    const doc = await vscode.workspace.openTextDocument(best.location.uri);
-    await vscode.window.showTextDocument(doc, {
-      selection: best.location.range,
-      viewColumn: vscode.ViewColumn.One,
-    });
+    // For single-part paths or if multi-part failed, find the name directly
+    const searchName = parts[parts.length - 1];
+    const pos = this.findIdentifierInCode(document, searchName);
+    if (pos) {
+      const loc = await this.getDefinitionLocation(document.uri, pos);
+      if (loc) return loc;
+    }
+
+    return undefined;
+  }
+
+  /** Call LSP definition provider and normalize Location/LocationLink result */
+  private async getDefinitionLocation(
+    uri: vscode.Uri,
+    position: vscode.Position,
+  ): Promise<{ uri: vscode.Uri; range: vscode.Range } | undefined> {
+    const results = await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
+      "vscode.executeDefinitionProvider",
+      uri,
+      position,
+    );
+    if (!results || results.length === 0) return undefined;
+
+    const def = results[0];
+    // LocationLink has targetUri/targetSelectionRange, Location has uri/range
+    if ("targetUri" in def) {
+      return { uri: def.targetUri, range: def.targetSelectionRange ?? def.targetRange };
+    }
+    if ("uri" in def && def.uri) {
+      return { uri: def.uri, range: def.range };
+    }
+    return undefined;
+  }
+
+  /** Find an identifier in code lines, preferring non-comment code */
+  private findIdentifierInCode(
+    document: vscode.TextDocument,
+    name: string,
+  ): vscode.Position | undefined {
+    const patterns = [
+      new RegExp(`\\b${escapeRegex(name)}\\b`),
+      new RegExp(`\\b${escapeRegex(name)}!`),
+    ];
+    // Pass 1: search in non-comment code
+    for (const wordRe of patterns) {
+      for (let i = 0; i < document.lineCount; i++) {
+        const line = document.lineAt(i).text;
+        const trimmed = line.trimStart();
+        if (trimmed.startsWith("///") || trimmed.startsWith("//!") || trimmed.startsWith("//")) continue;
+        const match = wordRe.exec(line);
+        if (match) {
+          return new vscode.Position(i, match.index);
+        }
+      }
+    }
+    // Pass 2: search all lines including doc comments (for identifiers only used in examples)
+    for (const wordRe of patterns) {
+      for (let i = 0; i < document.lineCount; i++) {
+        const line = document.lineAt(i).text;
+        const match = wordRe.exec(line);
+        if (match) {
+          return new vscode.Position(i, match.index);
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private async findInDocument(
+    document: vscode.TextDocument,
+    name: string,
+    container: string | undefined,
+  ): Promise<vscode.Range | undefined> {
+    // Try document symbol provider (LSP)
+    const docSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+      "vscode.executeDocumentSymbolProvider",
+      document.uri,
+    );
+    if (docSymbols && docSymbols.length > 0) {
+      const found = this.findSymbolRecursive(docSymbols, name, container);
+      if (found) return found.selectionRange;
+    }
+
+    // Fallback: regex search in document text
+    const pattern = new RegExp(
+      `^\\s*(?:pub(?:\\(.*?\\))?\\s+)?(?:fn|struct|enum|trait|type|const|static|mod|macro|impl)\\s+${escapeRegex(name)}\\b`,
+    );
+    for (let i = 0; i < document.lineCount; i++) {
+      const line = document.lineAt(i).text;
+      if (pattern.test(line)) {
+        if (!container) return new vscode.Range(i, 0, i, 0);
+        // Check that this is inside the right impl block
+        const implPattern = new RegExp(`impl.*\\b${escapeRegex(container)}\\b`);
+        for (let j = i - 1; j >= 0; j--) {
+          if (implPattern.test(document.lineAt(j).text)) {
+            return new vscode.Range(i, 0, i, 0);
+          }
+          if (/^(?:pub|fn|struct|enum|trait|mod|use)\b/.test(document.lineAt(j).text.trimStart())) {
+            break;
+          }
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private findSymbolRecursive(
+    symbols: vscode.DocumentSymbol[],
+    name: string,
+    container: string | undefined,
+  ): vscode.DocumentSymbol | undefined {
+    for (const sym of symbols) {
+      // Direct match (no container required)
+      if (sym.name === name && !container) return sym;
+
+      if (sym.children.length > 0) {
+        // Check direct children with container match on parent
+        for (const child of sym.children) {
+          if (child.name === name) {
+            if (!container || sym.name.includes(container)) return child;
+          }
+        }
+        // Recurse deeper
+        const deep = this.findSymbolRecursive(sym.children, name, container);
+        if (deep) return deep;
+      }
+    }
+    return undefined;
   }
 
   private showEmpty(): void {
