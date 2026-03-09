@@ -60,7 +60,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "compile": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --loader:.html=text",
     "watch": "npm run compile -- --watch",
     "typecheck": "tsc -p ./ --noEmit",
     "lint": "eslint src/"

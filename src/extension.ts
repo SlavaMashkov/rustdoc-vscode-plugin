@@ -38,11 +38,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.document.languageId === "rust" && preview.isVisible()) {
         if (docChangeTimer) clearTimeout(docChangeTimer);
-        docChangeTimer = setTimeout(() => {
-          try { preview.update(); } catch (err) {
-            console.error("[rustdoc-viewer] Error during debounced update:", err);
-          }
-        }, 300);
+        docChangeTimer = setTimeout(() => preview.update(), 300);
       }
     }),
   );
