@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Markdown tables (GitHub style, as rustdoc renders them): a header row, a `| --- |` separator with optional `:` alignment, and body rows. Cells take the usual inline formatting and links; a `|` inside a code span or written as `\|` does not split a cell.
+
 ## [0.5.0] - 2026-03-09
 
 ### Changed
