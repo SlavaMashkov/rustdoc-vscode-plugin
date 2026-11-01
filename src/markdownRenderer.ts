@@ -208,6 +208,29 @@ function markdownToHtml(md: string, refs: RefMap): string {
       continue;
     }
 
+    // Table: a header row followed by a `| --- |` separator row
+    if (isTableStart(lines, i)) {
+      closeList();
+      const header = splitTableRow(line);
+      const align = splitTableRow(lines[i + 1]).map(tableAlign);
+      i += 2;
+      const cellHtml = (tag: string, cell: string, col: number): string => {
+        const style = align[col] ? ` style="text-align:${align[col]}"` : "";
+        return `<${tag}${style}>${inlineMarkdown(cell, refs)}</${tag}>`;
+      };
+      const rows: string[] = [];
+      while (i < lines.length && lines[i].trim() !== "" && lines[i].includes("|")) {
+        const cells = splitTableRow(lines[i]);
+        while (cells.length < header.length) cells.push("");
+        const tds = cells.slice(0, header.length).map((c, col) => cellHtml("td", c, col));
+        rows.push(`<tr>${tds.join("")}</tr>`);
+        i++;
+      }
+      const ths = header.map((c, col) => cellHtml("th", c, col));
+      output.push(`<table><thead><tr>${ths.join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`);
+      continue;
+    }
+
     // Blank line
     if (line.trim() === "") {
       closeList();
@@ -224,7 +247,8 @@ function markdownToHtml(md: string, refs: RefMap): string {
       lines[i].trim() !== "" &&
       !lines[i].trim().startsWith("```") &&
       !lines[i].match(/^#{1,6}\s/) &&
-      !lines[i].match(/^\s*[-*]\s/)
+      !lines[i].match(/^\s*[-*]\s/) &&
+      !isTableStart(lines, i)
     ) {
       paraLines.push(lines[i]);
       i++;
@@ -234,6 +258,58 @@ function markdownToHtml(md: string, refs: RefMap): string {
 
   closeList();
   return output.join("\n");
+}
+
+const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** Whether `lines[i]` starts a GFM table: a row with a pipe, then a separator row. */
+function isTableStart(lines: string[], i: number): boolean {
+  return (
+    i + 1 < lines.length &&
+    lines[i].includes("|") &&
+    lines[i + 1].includes("|") &&
+    TABLE_SEPARATOR_RE.test(lines[i + 1])
+  );
+}
+
+/**
+ * Split a table row into cell texts. Leading and trailing pipes are optional;
+ * a pipe inside a code span or escaped as `\|` does not split.
+ */
+function splitTableRow(line: string): string[] {
+  let row = line.trim();
+  if (row.startsWith("|")) row = row.slice(1);
+  if (row.endsWith("|") && !row.endsWith("\\|")) row = row.slice(0, -1);
+  const cells: string[] = [];
+  let cell = "";
+  let inCode = false;
+  for (let k = 0; k < row.length; k++) {
+    const ch = row[k];
+    if (ch === "\\" && row[k + 1] === "|") {
+      cell += "|";
+      k++;
+    } else if (ch === "`") {
+      inCode = !inCode;
+      cell += ch;
+    } else if (ch === "|" && !inCode) {
+      cells.push(cell.trim());
+      cell = "";
+    } else {
+      cell += ch;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** The CSS text-align of a separator cell: `:--` left, `--:` right, `:-:` center. */
+function tableAlign(cell: string): string {
+  const left = cell.startsWith(":");
+  const right = cell.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return "";
 }
 
 /** Render code text as inline `<code>`, optionally wrapped in a link. */
